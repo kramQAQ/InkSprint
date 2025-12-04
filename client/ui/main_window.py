@@ -60,11 +60,29 @@ class MainWindow(QWidget):
         side_layout = QVBoxLayout(self.sidebar)
         side_layout.setContentsMargins(20, 40, 20, 40)
 
-        lbl_logo = QLabel("InkSprint")
-        lbl_logo.setObjectName("SidebarLogo")
-        side_layout.addWidget(lbl_logo)
-        side_layout.addSpacing(30)
+        # [修改] 顶部放置头像和用户名 (原Logo位置)
+        user_profile = QFrame()
+        user_profile.setObjectName("UserProfile")
+        user_layout = QHBoxLayout(user_profile)
+        user_layout.setContentsMargins(0, 0, 0, 0)  # 紧凑布局
+        user_layout.setSpacing(12)
 
+        self.lbl_avatar = QLabel()
+        self.lbl_avatar.setObjectName("UserAvatar")
+        self.lbl_avatar.setFixedSize(48, 48)  # 稍微加大头像
+        self.lbl_avatar.setScaledContents(True)
+
+        self.lbl_username = QLabel("Guest")
+        self.lbl_username.setObjectName("SidebarUserName")  # 使用新ID以便独立样式
+
+        user_layout.addWidget(self.lbl_avatar)
+        user_layout.addWidget(self.lbl_username)
+        user_layout.addStretch()
+
+        side_layout.addWidget(user_profile)
+        side_layout.addSpacing(40)  # 头像和导航栏之间的间距
+
+        # 导航按钮
         for text in ["🏠  Dashboard", "📊  Analytics", "👥  Friends", "⚙️  Settings"]:
             btn = QPushButton(text)
             btn.setCheckable(True)
@@ -74,24 +92,8 @@ class MainWindow(QWidget):
 
         side_layout.addStretch()
 
-        user_profile = QFrame()
-        user_profile.setObjectName("UserProfile")
-        user_layout = QHBoxLayout(user_profile)
-        user_layout.setContentsMargins(5, 5, 5, 5)
-        user_layout.setSpacing(10)
-
-        self.lbl_avatar = QLabel()
-        self.lbl_avatar.setObjectName("UserAvatar")
-        self.lbl_avatar.setFixedSize(40, 40)
-        self.lbl_avatar.setScaledContents(True)
-
-        self.lbl_username = QLabel("Guest")
-        self.lbl_username.setObjectName("UserName")
-
-        user_layout.addWidget(self.lbl_avatar)
-        user_layout.addWidget(self.lbl_username)
-        user_layout.addStretch()
-        side_layout.addWidget(user_profile)
+        # 底部留空或放其他信息，原用户信息已移至顶部
+        # ...
 
         # --- 2. 内容区 ---
         content_container = QWidget()
@@ -103,7 +105,8 @@ class MainWindow(QWidget):
         header_layout = QHBoxLayout()
         header_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
-        self.lbl_title = QLabel("Overview")
+        # [修改] 标题从 Overview 改为 Hi, User
+        self.lbl_title = QLabel("Hi, Guest")
         self.lbl_title.setObjectName("PageTitle")
         header_layout.addWidget(self.lbl_title)
         header_layout.addStretch()
@@ -369,8 +372,6 @@ class MainWindow(QWidget):
     def update_display_time(self):
         mins, secs = divmod(self.pomo_seconds, 60)
         hours, mins_remainder = divmod(mins, 60)
-        # Format: MM:SS or HH:MM:SS if needed, here simple MM:SS is usually enough for pomo
-        # But if > 60 min, showing hour is better
         if hours > 0:
             time_str = f"{hours:02d}:{mins_remainder:02d}:{secs:02d}"
         else:
@@ -452,9 +453,16 @@ class MainWindow(QWidget):
             pixmap = QPixmap(avatar_path)
             self.lbl_avatar.setPixmap(pixmap)
         else:
-            pixmap = QPixmap(40, 40)
-            pixmap.fill(QColor("#cccccc"))
-            self.lbl_avatar.setPixmap(pixmap)
+            # 默认灰色圆形占位符
+            pixmap = QPixmap(48, 48)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            self.lbl_avatar.setStyleSheet("background-color: #cccccc; border-radius: 24px;")
+            # 如果有图片会覆盖背景色
+
+    def set_user_info(self, username):
+        self.lbl_username.setText(username)
+        # [新增] 更新主标题
+        self.lbl_title.setText(f"Hi, {username}")
 
     def apply_theme(self):
         t = self.current_theme
@@ -467,26 +475,27 @@ class MainWindow(QWidget):
         sub_color = t['text_sub']
         scrollbar_track = "#ffffff" if t['name'] == 'light' else "#000000"
 
-        # 主界面的番茄钟卡片颜色与普通卡片保持一致（跟随主题）
-        # Float UI 的特殊黑白样式在 float_window.py 里处理，这里不处理
-
         self.setStyleSheet(f"""
             QWidget {{ background-color: {t['window_bg']}; font-family: 'Segoe UI', sans-serif; }}
             QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
 
-            QLabel#SidebarLogo {{ 
-                font-size: 24px; font-weight: 900; color: {t['accent']}; 
-                padding-left: 10px; background-color: transparent; 
-            }}
-            QLabel#UserAvatar {{ background-color: transparent; border-radius: 20px; }}
+            /* Sidebar User Info (Top Left) */
+            QLabel#UserAvatar {{ background-color: #cccccc; border-radius: 24px; }}
             QFrame#UserProfile {{ background-color: transparent; border: none; }}
-            QLabel#UserName {{ color: {t['text_main']}; font-weight: bold; font-size: 15px; background-color: transparent; }}
+            QLabel#SidebarUserName {{ 
+                color: {t['accent']}; /* 绿色文字 */
+                font-weight: 900; 
+                font-size: 20px; 
+                background-color: transparent; 
+            }}
 
             QPushButton#NavButton {{ text-align: left; padding: 12px 20px; border-radius: 10px; border: none; color: {t['text_sub']}; font-weight: 600; font-size: 15px; background: transparent; }}
             QPushButton#NavButton:hover {{ background-color: {t['input_bg']}; color: {t['text_main']}; }}
             QPushButton#NavButton:checked {{ background-color: {t['input_bg']}; color: {t['accent']}; }}
 
-            QLabel#PageTitle {{ font-size: 28px; font-weight: bold; color: {t['text_main']}; }}
+            /* Main Header Title */
+            QLabel#PageTitle {{ font-size: 32px; font-weight: bold; color: {t['text_main']}; }}
+
             QLabel#ListTitle {{ font-weight: bold; font-size: 16px; margin-top: 5px; margin-bottom: 5px; color: {t['text_main']}; background-color: transparent; }}
 
             QPushButton#ThemeToggle, QPushButton#PinButton, QPushButton#FloatButton, QPushButton#PomoSwitch {{ 
@@ -545,6 +554,3 @@ class MainWindow(QWidget):
         """)
         # 刷新模式按钮样式
         self.set_pomodoro_mode(self.pomo_mode)
-
-    def set_user_info(self, username):
-        self.lbl_username.setText(username)
