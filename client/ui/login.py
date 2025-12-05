@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit,
                              QPushButton, QFrame, QHBoxLayout, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, pyqtSignal
-from ui.theme import LIGHT_THEME, DARK_THEME
+from PyQt6.QtGui import QColor
+from .theme import ThemeManager
 
 
 class LoginWindow(QWidget):
@@ -16,8 +17,9 @@ class LoginWindow(QWidget):
         self.setWindowTitle("InkSprint")
         self.resize(360, 520)
 
-        # 默认主题
-        self.current_theme = LIGHT_THEME
+        # 默认主题状态
+        self.is_night = False
+        self.current_theme = ThemeManager.get_theme(self.is_night)
 
         # 无边框设置
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -45,7 +47,9 @@ class LoginWindow(QWidget):
 
         # 顶部栏
         top_bar = QHBoxLayout()
-        self.btn_theme = QPushButton("🌙")
+        # 根据当前模式设置初始图标
+        icon_text = "☀" if self.is_night else "🌙"
+        self.btn_theme = QPushButton(icon_text)
         self.btn_theme.setFixedSize(30, 30)
         self.btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_theme.clicked.connect(self.toggle_theme)
@@ -99,14 +103,11 @@ class LoginWindow(QWidget):
         main_layout.addWidget(self.card)
 
     def toggle_theme(self):
-        if self.current_theme == LIGHT_THEME:
-            self.current_theme = DARK_THEME
-            self.btn_theme.setText("☀")
-            self.theme_changed.emit(True)  # 发送信号：切换到了黑夜
-        else:
-            self.current_theme = LIGHT_THEME
-            self.btn_theme.setText("🌙")
-            self.theme_changed.emit(False)  # 发送信号：切换到了白天
+        self.is_night = not self.is_night
+        self.current_theme = ThemeManager.get_theme(self.is_night)
+
+        self.btn_theme.setText("☀" if self.is_night else "🌙")
+        self.theme_changed.emit(self.is_night)
         self.apply_theme()
 
     def apply_theme(self):

@@ -9,11 +9,13 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 from PyQt6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon, QMenu
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 from ui.login import LoginWindow
 from ui.main_window import MainWindow
-from ui.float_window import FloatWindow, PomodoroFloatWindow
+# [修改] 导入 FloatWindow 和 默认颜色
+from ui.float_window import FloatWindow
+from ui.theme import DEFAULT_ACCENT
 from core.network import NetworkManager
 
 
@@ -25,13 +27,18 @@ class InkApplication:
         self.network = NetworkManager(port=23456)
         self.network.message_received.connect(self.on_server_message)
 
+        # 初始化窗口
         self.login_window = LoginWindow()
-        self.main_window = None
-        self.float_window = FloatWindow()
-        self.pomo_float = PomodoroFloatWindow()
+        self.main_window = None  # 登录成功后再创建
 
+        # [修改] 初始化悬浮窗 (传入默认颜色)
+        # 注意：这里创建一个全局悬浮窗实例，或者也可以后续委托给 MainWindow 管理
+        # 为了避免逻辑冲突，这里我们先初始化一个，后续如果 MainWindow 接管了，可以隐藏这个
+        self.float_window = FloatWindow(DEFAULT_ACCENT)
+
+        # 信号连接
         self.login_window.login_signal.connect(self.handle_login_request)
-        self.login_window.theme_changed.connect(self.on_theme_changed)
+        # self.login_window.theme_changed.connect(self.on_theme_changed) # 登录页主题切换暂时不需要同步到未创建的主窗口
 
         self.float_window.restore_signal.connect(self.restore_from_float)
 
@@ -79,13 +86,6 @@ class InkApplication:
         self.login_window.show()
         sys.exit(self.app.exec())
 
-    def on_theme_changed(self, is_night):
-        self.is_night_mode = is_night
-        # 更新悬浮窗主题
-        self.float_window.set_theme_style(is_night)
-        self.pomo_float.set_theme_style(is_night)
-        # 如果主窗口存在，它会自动处理，不需要手动调
-
     def handle_login_request(self, username, password):
         print(f"[GUI] 发送登录请求: {username}")
         self.current_attempt_user = username
@@ -100,63 +100,47 @@ class InkApplication:
     def on_server_message(self, data):
         msg_type = data.get("type")
         if msg_type == "response":
+            # 简单处理：收到响应即认为登录成功
             self.login_window.hide()
             self.init_main_window()
 
     def init_main_window(self):
         if not self.main_window:
+            # 获取登录窗口最后的主题状态（可选）
+            self.is_night_mode = self.login_window.is_night
+
+            # 创建主窗口
             self.main_window = MainWindow(is_night=self.is_night_mode)
             self.main_window.set_user_info(self.current_attempt_user)
 
-            self.main_window.switch_float_signal.connect(self.switch_to_float)
-            self.main_window.monitor_thread.stats_updated.connect(self.float_window.update_data)
+            # [关键] 主窗口内部已经实例化了自己的 FloatWindow (在 MainWindow.__init__ 中)
+            # 并且处理了所有信号连接（模式切换、数据更新等）
+            # 所以为了避免重复和冲突，我们销毁 main.py 里的这个临时 float_window
+            # 转而使用 main_window.float_window
+            if self.float_window:
+                self.float_window.close()
+                self.float_window = None
 
-            self.main_window.pomo_update_signal.connect(self.pomo_float.update_time)
-            self.main_window.pomo_float_toggle_signal.connect(self.toggle_pomo_float)
-
-            # 同步主题
-            self.on_theme_changed(self.is_night_mode)
+            # 重新绑定系统托盘的“恢复”操作到主窗口的逻辑
+            # 注意：这里我们通过调用 main_window 的方法来间接控制
+            # MainWindow 内部的 float_window.restore_signal 已经连接到了它的 restore_from_float
+            pass
 
         self.main_window.show()
         print("[GUI] 进入主界面")
 
     def switch_to_float(self):
+        """切换到悬浮窗模式 (委托给 MainWindow)"""
         if self.main_window:
-            self.main_window.hide()
-        self.float_window.show()
-
-        screen = self.app.primaryScreen().geometry()
-        fx = screen.width() - 200
-        fy = 100
-        self.float_window.move(fx, fy)
-
-        if self.main_window.chk_pomo_float.isChecked():
-            self.pomo_float.show()
-            self.update_pomo_float_position()
-
-        print("[GUI] 切换到悬浮窗模式")
+            self.main_window.switch_to_float()
+        else:
+            # 如果还没登录进主界面，暂不支持
+            pass
 
     def restore_from_float(self):
-        self.float_window.hide()
-        self.pomo_float.hide()
+        """从悬浮窗恢复 (委托给 MainWindow)"""
         if self.main_window:
-            self.main_window.show()
-            self.main_window.activateWindow()
-        print("[GUI] 返回主界面")
-
-    def toggle_pomo_float(self, enabled):
-        if self.float_window.isVisible():
-            if enabled:
-                self.pomo_float.show()
-                self.update_pomo_float_position()
-            else:
-                self.pomo_float.hide()
-
-    def update_pomo_float_position(self):
-        main_geo = self.float_window.geometry()
-        px = main_geo.x() - self.pomo_float.width() - 10
-        py = main_geo.y() + (main_geo.height() - self.pomo_float.height()) // 2
-        self.pomo_float.move(px, py)
+            self.main_window.restore_from_float()
 
     def quit_app(self):
         if self.main_window:
