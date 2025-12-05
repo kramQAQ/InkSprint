@@ -14,7 +14,6 @@ if client_dir not in sys.path:
 
 try:
     from .theme import ThemeManager, DEFAULT_ACCENT
-    # [关键修复] 只导入 FloatWindow，因为 PomodoroFloatWindow 已经合并进去了
     from .float_window import FloatWindow
     from core.file_monitor import FileMonitor
 except ImportError as e:
@@ -49,15 +48,15 @@ class MainWindow(QWidget):
         self.pomo_is_running = False
         self.pomo_mode = "timer"
 
-        # 悬浮窗 (现在只有一个统一的悬浮窗)
+        # 悬浮窗
         self.float_window = FloatWindow(self.current_accent)
         self.float_window.restore_signal.connect(self.restore_from_float)
 
         # 连接信号
         self.switch_float_signal.connect(self.switch_to_float)
-        self.pomo_float_toggle_signal.connect(self.float_window.set_mode)  # 直接连接模式切换
-        self.monitor_thread.stats_updated.connect(self.float_window.update_data)  # 连接数据更新
-        self.pomo_update_signal.connect(self.float_window.update_timer)  # 连接时间更新
+        self.pomo_float_toggle_signal.connect(self.float_window.set_mode)
+        self.monitor_thread.stats_updated.connect(self.float_window.update_data)
+        self.pomo_update_signal.connect(self.float_window.update_timer)
 
         self.setup_ui()
         self.apply_theme()
@@ -98,7 +97,6 @@ class MainWindow(QWidget):
 
         # 导航按钮组
         self.nav_btns = {}
-        # 按钮文本 -> 页面索引映射
         nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 0), ("👥  Friends", 0), ("⚙️  Settings", 1)]
 
         for text, page_idx in nav_items:
@@ -110,7 +108,6 @@ class MainWindow(QWidget):
             side_layout.addWidget(btn)
             self.nav_btns[text] = btn
 
-        # 默认选中第一个
         list(self.nav_btns.values())[0].setChecked(True)
         side_layout.addStretch()
         main_layout.addWidget(self.sidebar)
@@ -205,7 +202,6 @@ class MainWindow(QWidget):
         form_layout.setContentsMargins(30, 30, 30, 30)
         form_layout.setSpacing(20)
 
-        # 颜色选择器
         self.btn_color_pick = QPushButton(self.current_accent)
         self.btn_color_pick.setFixedSize(120, 35)
         self.btn_color_pick.clicked.connect(self.open_color_picker)
@@ -218,7 +214,6 @@ class MainWindow(QWidget):
 
         layout.addWidget(form_card)
 
-        # 阴影
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(15)
         shadow.setColor(QColor(0, 0, 0, 50))
@@ -294,17 +289,17 @@ class MainWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Focus Timer"))
+        self.lbl_pomo_title = QLabel("Focus Timer")
+        self.lbl_pomo_title.setObjectName("PomoTitle")
+        top_bar.addWidget(self.lbl_pomo_title)
         top_bar.addStretch()
 
-        # Float Checkbox
         self.chk_pomo_float = QCheckBox("Float")
         self.chk_pomo_float.setObjectName("PomoFloatCheck")
         self.chk_pomo_float.toggled.connect(self.pomo_float_toggle_signal.emit)
         top_bar.addWidget(self.chk_pomo_float)
         top_bar.addSpacing(10)
 
-        # Mode btns
         self.btn_mode_timer = QPushButton("-")
         self.btn_mode_timer.setFixedSize(30, 30)
         self.btn_mode_timer.setObjectName("PomoModeBtn")
@@ -352,7 +347,6 @@ class MainWindow(QWidget):
     # --- 逻辑处理 ---
 
     def on_nav_clicked(self, page_idx, btn):
-        # 互斥选中状态
         for b in self.nav_btns.values():
             b.setChecked(False)
         btn.setChecked(True)
@@ -364,10 +358,8 @@ class MainWindow(QWidget):
             new_hex = color.name().upper()
             self.current_accent = new_hex
             self.btn_color_pick.setText(new_hex)
-            # 应用新颜色
             self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
             self.apply_theme()
-            # 同步更新悬浮窗颜色
             self.float_window.set_theme_color(self.current_accent)
 
     def toggle_theme_mode(self):
@@ -376,14 +368,17 @@ class MainWindow(QWidget):
         self.btn_theme_toggle.setText("☀ Light" if self.is_night else "🌙 Dark")
         self.apply_theme()
 
-    # ... (文件监控、源添加逻辑保持不变，略微精简以适应上下文) ...
     def update_dashboard_stats(self, total, increment, wph):
         self.lbl_main_count.setText(str(increment))
         self.lbl_speed.setText(str(wph))
 
     def add_local_source(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Doc", "", "Documents (*.docx *.txt)")
-        if file_path: self._perform_add(file_path, False)
+        # [修改] 使用 getOpenFileNames 替换 getOpenFileName 以支持多选
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Docs", "", "Documents (*.docx *.txt)")
+        if file_paths:
+            # 遍历选中的文件列表
+            for path in file_paths:
+                self._perform_add(path, False)
 
     def add_web_source(self):
         text, ok = QInputDialog.getText(self, "Add Web", "URL:")
@@ -408,7 +403,6 @@ class MainWindow(QWidget):
         self.list_sources.takeItem(self.list_sources.row(item))
         self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
 
-    # ... (番茄钟逻辑保持不变，确保信号发射) ...
     def on_pomo_time_edited(self):
         if self.pomo_is_running: return
         try:
@@ -464,13 +458,11 @@ class MainWindow(QWidget):
         h, m = divmod(m, 60)
         time_str = f"{h:02d}:{m:02d}:{s:02d}"
         self.edit_pomo_time.setText(time_str)
-        self.pomo_update_signal.emit(f"{m:02d}:{s:02d}" if h == 0 else time_str)  # 悬浮窗显示精简版? 用户说不需要字样但要计时
+        self.pomo_update_signal.emit(f"{m:02d}:{s:02d}" if h == 0 else time_str)
 
-    # --- 悬浮窗切换 ---
     def switch_to_float(self):
         self.hide()
         self.float_window.show()
-        # 移动到屏幕右上角附近
         screen = self.screen().geometry()
         self.float_window.move(screen.width() - 300, 100)
 
@@ -502,7 +494,6 @@ class MainWindow(QWidget):
             self.lbl_avatar.setStyleSheet("background-color: #cccccc; border-radius: 24px;")
 
     def apply_pomo_btn_style(self):
-        # 刷新番茄钟模式按钮的选中状态颜色
         t = self.current_theme
         active = f"background-color: {t['accent']}; color: white; border:none; border-radius: 5px; font-weight: bold;"
         inactive = f"background-color: {t['input_bg']}; color: {t['text_main']}; border:none; border-radius: 5px;"
@@ -513,22 +504,23 @@ class MainWindow(QWidget):
     def apply_theme(self):
         t = self.current_theme
 
-        # 更新颜色选择器按钮
         self.btn_color_pick.setStyleSheet(
             f"background-color: {t['accent']}; color: white; border-radius: 5px; font-weight: bold;")
         self.btn_color_pick.setText(self.current_accent)
 
-        # 阴影颜色
         shadow_c = QColor(0, 0, 0, 30) if t['name'] == 'light' else QColor(0, 0, 0, 180)
         for w in [self.card_main, self.card_sub, self.card_pomodoro, self.sources_card]:
             if hasattr(w, '_shadow'): w._shadow.setColor(shadow_c)
 
         val_color = "#2D3436" if t['name'] == 'light' else "#FFFFFF"
         sub_color = t['text_sub']
-        scroll_track = "#fff" if t['name'] == 'light' else "#000"
+
+        # 滚动条颜色定义
+        sb_handle = "#555555" if t['name'] == 'light' else "#AAAAAA"
+        sb_track = "transparent"
 
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {t['window_bg']}; font-family: 'Segoe UI', sans-serif; }}
+            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; font-family: 'Segoe UI', sans-serif; }}
             QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
 
             QLabel#UserAvatar {{ background-color: #ccc; border-radius: 24px; }}
@@ -561,8 +553,10 @@ class MainWindow(QWidget):
             QFrame#StatCard QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: {val_color}; }}
             QFrame#StatCard QLabel#CardTitle {{ font-size: 16px; color: {sub_color}; }}
 
-            /* Pomodoro Inputs */
-            QLineEdit#PomoTimeEdit {{ font-size: 56px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
+            QLabel#PomoTitle {{ font-size: 16px; color: {t['text_main']}; font-weight: bold; }}
+
+            QLineEdit#PomoTimeEdit {{ font-size: 42px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
+
             QPushButton#PomoStartBtn {{ background: {t['accent']}; color: white; border-radius: 25px; font-size: 20px; border: none; }}
             QPushButton#PomoResetBtn {{ background: {t['input_bg']}; color: {t['text_main']}; border-radius: 25px; font-size: 20px; border: none; }}
 
@@ -571,9 +565,31 @@ class MainWindow(QWidget):
             QCheckBox::indicator:checked {{ background: {t['accent']}; border: 1px solid {t['accent']}; border-radius: 3px; }}
 
             /* List */
-            QListWidget#SourceList {{ background: transparent; border: none; color: {t['text_main']}; font-size: 14px; }}
-            QListWidget::item {{ padding: 8px; border-radius: 5px; }}
-            QListWidget::item:selected {{ background: {t['input_bg']}; color: {t['accent']}; }}
+            QListWidget#SourceList {{ 
+                background: transparent; 
+                border: none; 
+                color: {t['text_main']}; 
+                font-size: 14px; 
+                outline: 0px;  /* 关键：去除焦点虚线框/黑白框 */
+            }}
+            QListWidget::item {{ padding: 8px; border-radius: 5px; border: none; }}
+            QListWidget::item:selected {{ 
+                background: {t['input_bg']}; 
+                color: {t['accent']}; 
+                border: none; /* 再次确保无边框 */
+            }}
+
+            /* ScrollBar Customization */
+            QScrollBar:vertical {{ border: none; background: {sb_track}; width: 8px; margin: 0px; }}
+            QScrollBar::handle:vertical {{ background: {sb_handle}; min-height: 20px; border-radius: 4px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+
+            /* Horizontal ScrollBar */
+            QScrollBar:horizontal {{ border: none; background: {sb_track}; height: 8px; margin: 0px; }}
+            QScrollBar::handle:horizontal {{ background: {sb_handle}; min-width: 20px; border-radius: 4px; }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
 
             /* Actions */
             QPushButton#ActionBtnLocal, QPushButton#ActionBtnWeb {{ background: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['border']}; border-radius: 10px; font-weight: bold; }}

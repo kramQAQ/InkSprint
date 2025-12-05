@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGraphicsDropShadowEffect)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGraphicsDropShadowEffect, QLayout)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
@@ -14,9 +14,9 @@ class FloatWindow(QWidget):
     def __init__(self, accent_color):
         super().__init__()
         self.accent_color = accent_color
-        self.has_pomodoro = False  # 当前是否显示番茄钟部分
+        self.has_pomodoro = False
 
-        # 窗口属性：无边框、置顶、工具窗口、透明背景(用于画圆角)
+        # 窗口属性：无边框、置顶、工具窗口、透明背景
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint |
                             Qt.WindowType.WindowStaysOnTopHint |
                             Qt.WindowType.Tool)
@@ -31,7 +31,10 @@ class FloatWindow(QWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
-        # 主容器 (背景色载体)
+        # [修改] 关键设置：强制布局紧贴内容，允许窗口随内容缩小
+        self.main_layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
+
+        # 主容器
         self.container = QFrame()
         self.container.setObjectName("FloatContainer")
 
@@ -57,16 +60,16 @@ class FloatWindow(QWidget):
 
         self.content_layout.addLayout(data_layout)
 
-        # --- 分割线 (仅在开启番茄钟时显示) ---
+        # --- 分割线 ---
         self.divider = QFrame()
         self.divider.setFrameShape(QFrame.Shape.VLine)
         self.divider.setObjectName("FloatDivider")
         self.divider.setFixedWidth(1)
-        self.divider.hide()  # 默认隐藏
+        self.divider.hide()
 
         self.content_layout.addWidget(self.divider)
 
-        # --- 右侧：番茄钟区 (默认隐藏) ---
+        # --- 右侧：番茄钟区 ---
         self.timer_widget = QWidget()
         self.timer_widget.hide()
         timer_layout = QVBoxLayout(self.timer_widget)
@@ -96,7 +99,6 @@ class FloatWindow(QWidget):
         self.update_style()
 
     def update_style(self):
-        # 纯色背景风格
         self.setStyleSheet(f"""
             #FloatContainer {{
                 background-color: {self.accent_color};
@@ -110,7 +112,7 @@ class FloatWindow(QWidget):
         """)
 
     def set_mode(self, show_pomodoro):
-        """切换是否显示番茄钟"""
+        """切换是否显示番茄钟，并自动调整窗口大小"""
         self.has_pomodoro = show_pomodoro
         if show_pomodoro:
             self.divider.show()
@@ -119,7 +121,7 @@ class FloatWindow(QWidget):
             self.divider.hide()
             self.timer_widget.hide()
 
-        # 调整大小策略以适应内容
+        # SetFixedSize 约束会自动处理调整，不需要额外调用 resize
         self.adjustSize()
 
     def update_data(self, total, increment, wph):
