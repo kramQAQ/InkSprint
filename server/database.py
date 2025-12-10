@@ -13,12 +13,9 @@ class User(Base):
     # 全局自增 ID，作为用户唯一标识
     id = Column(Integer, primary_key=True, autoincrement=True)
 
-    # 登录用 (ID)
-    username = Column(String(50), unique=True, nullable=False, comment="登录账号/ID")
+    # 登录用
+    username = Column(String(50), unique=True, nullable=False, comment="登录昵称")
     password_hash = Column(String(128), nullable=False, comment="加密密码")
-
-    # [新增] 昵称 (Display Name)
-    nickname = Column(String(50), nullable=True, comment="用户昵称")
 
     # 找回密码与展示用
     email = Column(String(100), unique=True, nullable=True, comment="绑定邮箱")
@@ -35,12 +32,13 @@ class User(Base):
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}', nickname='{self.nickname}')>"
+        return f"<User(id={self.id}, username='{self.username}')>"
 
 
 class DetailRecord(Base):
     """
     高频明细表：记录每一次具体的写作行为
+    数据保留策略：建议仅保留最近 24 小时或最近 7 天的数据，用于展示实时动态。
     """
     __tablename__ = 'detail_records'
 
@@ -50,7 +48,7 @@ class DetailRecord(Base):
     # 核心统计数据
     word_increment = Column(Integer, nullable=False, comment="本次新增字数")
 
-    # 来源追踪
+    # 来源追踪 (新增需求)
     source_path = Column(Text, nullable=False, comment="文档路径或URL")
     source_type = Column(String(20), default='local', comment="local 或 web")
 
@@ -67,6 +65,7 @@ class DetailRecord(Base):
 class DailyReport(Base):
     """
     每日汇总表：用于生成长期报表
+    每天每个用户只有一条记录，永久保存。
     """
     __tablename__ = 'daily_reports'
 
@@ -89,6 +88,13 @@ class DailyReport(Base):
 
 class DatabaseManager:
     def __init__(self, db_url='sqlite:///server_data.db'):
+        """
+        初始化数据库管理器
+        :param db_url: 数据库连接字符串
+                       本地测试可用 SQLite: 'sqlite:///server_data.db'
+                       生产环境推荐 MySQL: 'mysql+pymysql://root:password@localhost/inksprint'
+        """
+        # echo=False 关闭 SQL 日志打印，保持控制台清爽
         self.engine = create_engine(db_url, echo=False)
         self.Session = sessionmaker(bind=self.engine)
 
@@ -98,11 +104,16 @@ class DatabaseManager:
         print("[Database] 表结构已更新：User, DetailRecord, DailyReport")
 
     def get_session(self):
+        """获取一个新的会话 (记得使用 with session_scope() 或手动 close)"""
         return self.Session()
 
 
 # 单例模式
+# 如果需要使用 MySQL，请修改下方的连接字符串，例如：
+# db_manager = DatabaseManager('mysql+pymysql://root:123456@127.0.0.1:3306/inksprint?charset=utf8mb4')
 db_manager = DatabaseManager('sqlite:///server_data.db')
 
 if __name__ == '__main__':
+    # 运行此文件进行测试初始化
+    # 注意：如果表结构发生重大变化且使用 SQLite，可能需要删除旧的 .db 文件重新生成
     db_manager.init_db()
