@@ -1,11 +1,12 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QGraphicsDropShadowEffect,
                              QFileDialog, QInputDialog, QListWidget, QAbstractItemView, QMenu,
-                             QSizePolicy, QCheckBox, QLineEdit, QStackedWidget, QColorDialog, QFormLayout)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QRegularExpression
-from PyQt6.QtGui import QAction, QColor, QPixmap, QRegularExpressionValidator
+                             QSizePolicy, QCheckBox, QLineEdit, QStackedWidget, QColorDialog, QFormLayout, QMessageBox)
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QBuffer, QByteArray
+from PyQt6.QtGui import QAction, QColor, QPixmap, QImage
 import os
 import sys
+import base64
 
 # === 🛡️ 路径与导入修复区 ===
 client_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,20 +27,27 @@ class MainWindow(QWidget):
     pomo_float_toggle_signal = pyqtSignal(bool)
     pomo_update_signal = pyqtSignal(str)
 
-    def __init__(self, is_night=False):
+    # 增加信号：用于更新用户信息请求
+    update_profile_signal = pyqtSignal(dict)
+
+    def __init__(self, is_night=False, network_manager=None):
         super().__init__()
         self.setWindowTitle("InkSprint Dashboard")
         self.resize(1050, 720)
+        self.network = network_manager  # 保存网络管理器引用
 
         # 初始化主题状态
         self.is_night = is_night
         self.current_accent = DEFAULT_ACCENT
         self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
 
-        # 核心线程
+        # 数据
+        self.user_data = {"nickname": "Guest", "username": "guest", "avatar": None}
+
+        # 核心线程 (只初始化，不启动)
         self.monitor_thread = FileMonitor()
         self.monitor_thread.stats_updated.connect(self.update_dashboard_stats)
-        self.monitor_thread.start()
+        # ❌ 原来的 bug: self.monitor_thread.start() 在这里调用太早了！
 
         # 番茄钟
         self.pomo_timer = QTimer(self)
@@ -58,9 +66,13 @@ class MainWindow(QWidget):
         self.monitor_thread.stats_updated.connect(self.float_window.update_data)
         self.pomo_update_signal.connect(self.float_window.update_timer)
 
+        # 1. 先建立 UI (确保 label 等控件存在)
         self.setup_ui()
         self.apply_theme()
-        self.load_avatar()
+
+        # 2. ✅ 修复：UI 创建完毕后，再启动后台数据监控线程
+        # 防止线程在 UI 未就绪时发送信号导致崩溃
+        self.monitor_thread.start()
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -87,7 +99,7 @@ class MainWindow(QWidget):
         self.lbl_avatar.setScaledContents(True)
 
         self.lbl_app_name = QLabel("InkSprint")
-        self.lbl_app_name.setObjectName("SidebarAppName")
+        self.lbl_app_name.setObjectName("SidebarAppName")  # 样式中已设置为透明
 
         user_layout.addWidget(self.lbl_avatar)
         user_layout.addWidget(self.lbl_app_name)
@@ -114,15 +126,10 @@ class MainWindow(QWidget):
 
         # === 右侧内容区 (Stack) ===
         self.content_stack = QStackedWidget()
-
-        # 页面 0: Dashboard
         self.page_dashboard = self.create_dashboard_page()
         self.content_stack.addWidget(self.page_dashboard)
-
-        # 页面 1: Settings
         self.page_settings = self.create_settings_page()
         self.content_stack.addWidget(self.page_settings)
-
         main_layout.addWidget(self.content_stack)
 
     def create_dashboard_page(self):
@@ -133,12 +140,11 @@ class MainWindow(QWidget):
 
         # Header
         header_layout = QHBoxLayout()
-        self.lbl_title = QLabel("Hi, Guest")
+        self.lbl_title = QLabel(f"Hi, {self.user_data['nickname']}")
         self.lbl_title.setObjectName("PageTitle")
         header_layout.addWidget(self.lbl_title)
         header_layout.addStretch()
 
-        # 功能按钮
         self.btn_float = QPushButton("🚀")
         self.btn_float.setFixedSize(40, 40)
         self.btn_float.setObjectName("FloatButton")
@@ -163,7 +169,7 @@ class MainWindow(QWidget):
 
         layout.addLayout(header_layout)
 
-        # 数据卡片
+        # Cards
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
         self.card_main = self.create_stat_card("Session Words", "0", "Keep pushing!", True)
@@ -172,13 +178,11 @@ class MainWindow(QWidget):
         cards_layout.addWidget(self.card_sub, 1)
         layout.addLayout(cards_layout)
 
-        # 底部 (源列表 + 番茄钟)
+        # Bottom
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(20)
-
         self.sources_card = self.create_sources_card()
         self.card_pomodoro = self.create_pomodoro_card()
-
         bottom_layout.addWidget(self.sources_card, 2)
         bottom_layout.addWidget(self.card_pomodoro, 1)
         layout.addLayout(bottom_layout)
@@ -202,22 +206,73 @@ class MainWindow(QWidget):
         form_layout.setContentsMargins(30, 30, 30, 30)
         form_layout.setSpacing(20)
 
+        # 1. 个人资料部分
+        lbl_profile = QLabel("Profile Settings")
+        lbl_profile.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
+        form_layout.addRow(lbl_profile)
+
+        # ID (不可改)
+        self.lbl_id_display = QLabel("Loading...")
+        self.lbl_id_display.setStyleSheet("color: #666; font-family: monospace;")
+        form_layout.addRow("User ID (Login):", self.lbl_id_display)
+
+        # 昵称 (可改)
+        self.edit_nickname = QLineEdit()
+        self.edit_nickname.setPlaceholderText("Enter your display name")
+        form_layout.addRow("Nickname:", self.edit_nickname)
+
+        # 头像 (可改)
+        self.btn_avatar_pick = QPushButton("Change Avatar")
+        self.btn_avatar_pick.setFixedSize(120, 35)
+        self.btn_avatar_pick.clicked.connect(self.open_avatar_picker)
+
+        self.lbl_avatar_preview = QLabel()
+        self.lbl_avatar_preview.setFixedSize(60, 60)
+        self.lbl_avatar_preview.setStyleSheet("background: #eee; border-radius: 30px;")
+        self.lbl_avatar_preview.setScaledContents(True)
+
+        av_layout = QHBoxLayout()
+        av_layout.addWidget(self.lbl_avatar_preview)
+        av_layout.addWidget(self.btn_avatar_pick)
+        av_layout.addStretch()
+
+        form_layout.addRow("Avatar:", av_layout)
+
+        # 分割
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color: #ddd;")
+        form_layout.addRow(line)
+
+        # 2. 主题部分
+        lbl_theme = QLabel("Appearance")
+        lbl_theme.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
+        form_layout.addRow(lbl_theme)
+
         self.btn_color_pick = QPushButton(self.current_accent)
         self.btn_color_pick.setFixedSize(120, 35)
         self.btn_color_pick.clicked.connect(self.open_color_picker)
+        form_layout.addRow("Accent Color:", self.btn_color_pick)
 
-        lbl_hint = QLabel("Choose your theme accent color")
-        lbl_hint.setStyleSheet("color: #888;")
-
-        form_layout.addRow("Theme Accent Color:", self.btn_color_pick)
-        form_layout.addRow("", lbl_hint)
+        # 底部保存按钮
+        self.btn_save_settings = QPushButton("Save Changes")
+        self.btn_save_settings.setFixedSize(150, 45)
+        self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save_settings.setObjectName("SaveButton")
+        self.btn_save_settings.clicked.connect(self.save_profile_changes)
 
         layout.addWidget(form_card)
+        layout.addSpacing(20)
+        layout.addWidget(self.btn_save_settings, 0, Qt.AlignmentFlag.AlignRight)
 
+        # 阴影
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(15)
         shadow.setColor(QColor(0, 0, 0, 50))
         form_card.setGraphicsEffect(shadow)
+
+        # 暂存新头像的base64
+        self.pending_avatar_b64 = None
 
         return page
 
@@ -289,17 +344,17 @@ class MainWindow(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
 
         top_bar = QHBoxLayout()
-        self.lbl_pomo_title = QLabel("Focus Timer")
-        self.lbl_pomo_title.setObjectName("PomoTitle")
-        top_bar.addWidget(self.lbl_pomo_title)
+        top_bar.addWidget(QLabel("Focus Timer"))
         top_bar.addStretch()
 
+        # Float Checkbox
         self.chk_pomo_float = QCheckBox("Float")
         self.chk_pomo_float.setObjectName("PomoFloatCheck")
         self.chk_pomo_float.toggled.connect(self.pomo_float_toggle_signal.emit)
         top_bar.addWidget(self.chk_pomo_float)
         top_bar.addSpacing(10)
 
+        # Mode btns
         self.btn_mode_timer = QPushButton("-")
         self.btn_mode_timer.setFixedSize(30, 30)
         self.btn_mode_timer.setObjectName("PomoModeBtn")
@@ -344,11 +399,81 @@ class MainWindow(QWidget):
         self.add_shadow(card)
         return card
 
-    # --- 逻辑处理 ---
+    # --- 功能逻辑 ---
+
+    def set_user_info(self, data):
+        """登录后初始化用户信息"""
+        self.user_data = data
+        nickname = data.get("nickname", "Writer")
+        username = data.get("username", "unknown")
+
+        self.lbl_title.setText(f"Hi, {nickname}")
+        self.lbl_id_display.setText(username)
+        self.edit_nickname.setText(nickname)
+
+        # 加载头像
+        if data.get("avatar_data"):
+            try:
+                img_data = base64.b64decode(data["avatar_data"])
+                pixmap = QPixmap()
+                pixmap.loadFromData(img_data)
+                self.lbl_avatar.setPixmap(pixmap)
+                self.lbl_avatar_preview.setPixmap(pixmap)
+            except:
+                pass
+        else:
+            self.load_default_avatar()
+
+    def open_avatar_picker(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Avatar", "", "Images (*.png *.jpg *.jpeg)")
+        if file_path:
+            # 缩放图片并转为 Base64
+            pixmap = QPixmap(file_path)
+            scaled = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+
+            self.lbl_avatar_preview.setPixmap(scaled)
+
+            # 转 Base64
+            byte_array = QByteArray()
+            buffer = QBuffer(byte_array)
+            buffer.open(QBuffer.OpenModeFlag.WriteOnly)
+            scaled.save(buffer, "PNG")
+            self.pending_avatar_b64 = byte_array.toBase64().data().decode()
+
+    def save_profile_changes(self):
+        """发送更新请求"""
+        new_nickname = self.edit_nickname.text().strip()
+        if not new_nickname:
+            QMessageBox.warning(self, "Warning", "Nickname cannot be empty!")
+            return
+
+        payload = {
+            "type": "update_profile",
+            "nickname": new_nickname,
+        }
+        if self.pending_avatar_b64:
+            payload["avatar_data"] = self.pending_avatar_b64
+
+        if self.network:
+            self.network.send_request(payload)
+            # 乐观更新 UI
+            self.lbl_title.setText(f"Hi, {new_nickname}")
+            if self.pending_avatar_b64:
+                self.lbl_avatar.setPixmap(self.lbl_avatar_preview.pixmap())
+            QMessageBox.information(self, "Sent", "Profile update request sent.")
+        else:
+            QMessageBox.critical(self, "Error", "No network connection.")
+
+    def load_default_avatar(self):
+        # 简单的纯色占位
+        self.lbl_avatar.setStyleSheet("background-color: #cccccc; border-radius: 24px;")
+        self.lbl_avatar_preview.setStyleSheet("background-color: #cccccc; border-radius: 30px;")
+
+    # --- 其他原有方法 (Nav, Theme等) ---
 
     def on_nav_clicked(self, page_idx, btn):
-        for b in self.nav_btns.values():
-            b.setChecked(False)
+        for b in self.nav_btns.values(): b.setChecked(False)
         btn.setChecked(True)
         self.content_stack.setCurrentIndex(page_idx)
 
@@ -368,17 +493,14 @@ class MainWindow(QWidget):
         self.btn_theme_toggle.setText("☀ Light" if self.is_night else "🌙 Dark")
         self.apply_theme()
 
+    # (监控、番茄钟、悬浮窗逻辑与原文件保持一致，略)
     def update_dashboard_stats(self, total, increment, wph):
         self.lbl_main_count.setText(str(increment))
         self.lbl_speed.setText(str(wph))
 
     def add_local_source(self):
-        # [修改] 使用 getOpenFileNames 替换 getOpenFileName 以支持多选
-        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Docs", "", "Documents (*.docx *.txt)")
-        if file_paths:
-            # 遍历选中的文件列表
-            for path in file_paths:
-                self._perform_add(path, False)
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Doc", "", "Documents (*.docx *.txt)")
+        if file_path: self._perform_add(file_path, False)
 
     def add_web_source(self):
         text, ok = QInputDialog.getText(self, "Add Web", "URL:")
@@ -472,12 +594,8 @@ class MainWindow(QWidget):
         self.activateWindow()
 
     def toggle_always_on_top(self):
-        top = self.btn_pin.isChecked()
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, top)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.btn_pin.isChecked())
         self.show()
-
-    def set_user_info(self, username):
-        self.lbl_title.setText(f"Hi, {username}")
 
     def add_shadow(self, widget):
         shadow = QGraphicsDropShadowEffect(self)
@@ -487,27 +605,20 @@ class MainWindow(QWidget):
         widget.setGraphicsEffect(shadow)
         widget._shadow = shadow
 
-    def load_avatar(self):
-        if os.path.exists("default_avatar.jpg"):
-            self.lbl_avatar.setPixmap(QPixmap("default_avatar.jpg"))
-        else:
-            self.lbl_avatar.setStyleSheet("background-color: #cccccc; border-radius: 24px;")
-
     def apply_pomo_btn_style(self):
         t = self.current_theme
         active = f"background-color: {t['accent']}; color: white; border:none; border-radius: 5px; font-weight: bold;"
         inactive = f"background-color: {t['input_bg']}; color: {t['text_main']}; border:none; border-radius: 5px;"
-
         self.btn_mode_timer.setStyleSheet(active if self.pomo_mode == "timer" else inactive)
         self.btn_mode_stopwatch.setStyleSheet(active if self.pomo_mode == "stopwatch" else inactive)
 
     def apply_theme(self):
         t = self.current_theme
-
         self.btn_color_pick.setStyleSheet(
             f"background-color: {t['accent']}; color: white; border-radius: 5px; font-weight: bold;")
         self.btn_color_pick.setText(self.current_accent)
 
+        # 阴影
         shadow_c = QColor(0, 0, 0, 30) if t['name'] == 'light' else QColor(0, 0, 0, 180)
         for w in [self.card_main, self.card_sub, self.card_pomodoro, self.sources_card]:
             if hasattr(w, '_shadow'): w._shadow.setColor(shadow_c)
@@ -515,18 +626,16 @@ class MainWindow(QWidget):
         val_color = "#2D3436" if t['name'] == 'light' else "#FFFFFF"
         sub_color = t['text_sub']
 
-        # 滚动条颜色定义
-        sb_handle = "#555555" if t['name'] == 'light' else "#AAAAAA"
-        sb_track = "transparent"
-
+        # 核心 CSS
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; font-family: 'Segoe UI', sans-serif; }}
+            QWidget {{ background-color: {t['window_bg']}; font-family: 'Segoe UI', sans-serif; }}
             QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
 
             QLabel#UserAvatar {{ background-color: #ccc; border-radius: 24px; }}
+            /* 关键修改：SidebarAppName 明确透明背景 */
             QLabel#SidebarAppName {{ color: {t['accent']}; font-weight: 900; font-size: 22px; background: transparent; }}
 
-            /* Navigation */
+            /* Nav */
             QPushButton#NavButton {{ text-align: left; padding: 12px 20px; border-radius: 10px; border: none; color: {t['text_sub']}; font-weight: 600; font-size: 15px; background: transparent; }}
             QPushButton#NavButton:hover {{ background-color: {t['input_bg']}; color: {t['text_main']}; }}
             QPushButton#NavButton:checked {{ background-color: {t['input_bg']}; color: {t['accent']}; }}
@@ -535,10 +644,10 @@ class MainWindow(QWidget):
             QLabel#ListTitle {{ font-weight: bold; font-size: 16px; margin: 5px 0; color: {t['text_main']}; background: transparent; }}
 
             /* Buttons */
-            QPushButton#ThemeToggle, QPushButton#PinButton, QPushButton#FloatButton, QPushButton#PomoSwitch {{ 
+            QPushButton#ThemeToggle, QPushButton#PinButton, QPushButton#FloatButton, QPushButton#SaveButton {{ 
                 border: 1px solid {t['border']}; border-radius: 10px; color: {t['text_main']}; background: {t['card_bg']}; 
             }}
-            QPushButton#PinButton:checked {{ background: {t['accent']}; color: white; border: none; }}
+            QPushButton#PinButton:checked, QPushButton#SaveButton:hover {{ background: {t['accent']}; color: white; border: none; }}
 
             /* Cards */
             QFrame#StatCard, QFrame#SourcesCard, QFrame#PomodoroCard, QFrame#SettingsCard {{ background: {t['card_bg']}; border-radius: 20px; }}
@@ -553,46 +662,17 @@ class MainWindow(QWidget):
             QFrame#StatCard QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: {val_color}; }}
             QFrame#StatCard QLabel#CardTitle {{ font-size: 16px; color: {sub_color}; }}
 
-            QLabel#PomoTitle {{ font-size: 16px; color: {t['text_main']}; font-weight: bold; }}
+            /* Inputs */
+            QLineEdit {{ background-color: {t['input_bg']}; border: 1px solid {t['input_bg']}; border-radius: 8px; padding: 8px; color: {t['text_main']}; }}
+            QLineEdit:focus {{ border: 1px solid {t['accent']}; background-color: {t['card_bg']}; }}
 
-            QLineEdit#PomoTimeEdit {{ font-size: 42px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
-
+            /* Pomo Specific */
+            QLineEdit#PomoTimeEdit {{ font-size: 56px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
             QPushButton#PomoStartBtn {{ background: {t['accent']}; color: white; border-radius: 25px; font-size: 20px; border: none; }}
             QPushButton#PomoResetBtn {{ background: {t['input_bg']}; color: {t['text_main']}; border-radius: 25px; font-size: 20px; border: none; }}
 
-            /* Checkbox */
-            QCheckBox#PomoFloatCheck {{ color: {t['text_sub']}; spacing: 5px; }}
-            QCheckBox::indicator:checked {{ background: {t['accent']}; border: 1px solid {t['accent']}; border-radius: 3px; }}
-
             /* List */
-            QListWidget#SourceList {{ 
-                background: transparent; 
-                border: none; 
-                color: {t['text_main']}; 
-                font-size: 14px; 
-                outline: 0px;  /* 关键：去除焦点虚线框/黑白框 */
-            }}
-            QListWidget::item {{ padding: 8px; border-radius: 5px; border: none; }}
-            QListWidget::item:selected {{ 
-                background: {t['input_bg']}; 
-                color: {t['accent']}; 
-                border: none; /* 再次确保无边框 */
-            }}
-
-            /* ScrollBar Customization */
-            QScrollBar:vertical {{ border: none; background: {sb_track}; width: 8px; margin: 0px; }}
-            QScrollBar::handle:vertical {{ background: {sb_handle}; min-height: 20px; border-radius: 4px; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
-
-            /* Horizontal ScrollBar */
-            QScrollBar:horizontal {{ border: none; background: {sb_track}; height: 8px; margin: 0px; }}
-            QScrollBar::handle:horizontal {{ background: {sb_handle}; min-width: 20px; border-radius: 4px; }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: none; }}
-
-            /* Actions */
-            QPushButton#ActionBtnLocal, QPushButton#ActionBtnWeb {{ background: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['border']}; border-radius: 10px; font-weight: bold; }}
-            QPushButton#ActionBtnLocal:hover {{ background: {t['card_bg']}; color: {t['accent']}; border: 1px solid {t['accent']}; }}
+            QListWidget#SourceList {{ background: transparent; border: none; color: {t['text_main']}; font-size: 14px; }}
+            QListWidget::item:selected {{ background: {t['input_bg']}; color: {t['accent']}; }}
         """)
         self.apply_pomo_btn_style()

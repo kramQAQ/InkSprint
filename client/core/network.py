@@ -19,7 +19,7 @@ class NetworkManager(QThread):  # ✅ 继承 QThread 以支持信号
     # 定义一个信号：当收到 JSON 消息时触发，传出字典数据
     message_received = pyqtSignal(dict)
 
-    def __init__(self, host='127.0.0.1', port=23456):
+    def __init__(self, host='154.83.93.189', port=23456):
         super().__init__()
         self.host = host
         self.port = port
