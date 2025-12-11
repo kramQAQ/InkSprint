@@ -10,80 +10,60 @@ class User(Base):
     """用户表：存储账号核心信息"""
     __tablename__ = 'users'
 
-    # 全局自增 ID，作为用户唯一标识
     id = Column(Integer, primary_key=True, autoincrement=True)
-
-    # 登录用 (ID)
     username = Column(String(50), unique=True, nullable=False, comment="登录账号/ID")
     password_hash = Column(String(128), nullable=False, comment="加密密码")
-
-    # 展示用 (新增 nickname)
     nickname = Column(String(50), nullable=True, comment="显示昵称")
     email = Column(String(100), unique=True, nullable=True, comment="绑定邮箱")
-
-    # 个性化展示
-    # avatar_url 存储的是服务器本地的文件名 (例如 "user_1.png")
     avatar_url = Column(String(255), nullable=True, default="default.jpg", comment="头像路径")
     signature = Column(String(200), nullable=True, comment="个性签名")
-
-    # 系统字段
     created_at = Column(DateTime, default=datetime.now)
 
     # 关联关系
     detail_records = relationship("DetailRecord", back_populates="user", cascade="all, delete-orphan")
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
+    saved_sources = relationship("UserSource", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}')>"
 
 
 class DetailRecord(Base):
-    """
-    高频明细表：记录每一次具体的写作行为
-    """
+    """高频明细表：记录每一次具体的写作行为(心跳/Session粒度)"""
     __tablename__ = 'detail_records'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    word_increment = Column(Integer, nullable=False, comment="本次Session新增字数")
+    duration_seconds = Column(Integer, default=0, comment="本次Session持续时长")
+    start_time = Column(DateTime, default=datetime.now)
+    end_time = Column(DateTime, default=datetime.now)
 
-    # 核心统计数据
-    word_increment = Column(Integer, nullable=False, comment="本次新增字数")
-
-    # 来源追踪
-    source_path = Column(Text, nullable=False, comment="文档路径或URL")
-    source_type = Column(String(20), default='local', comment="local 或 web")
-
-    # 时间戳
-    timestamp = Column(DateTime, default=datetime.now, index=True)
-
-    # 关联
     user = relationship("User", back_populates="detail_records")
-
-    def __repr__(self):
-        return f"<Detail(src={self.source_type}, inc={self.word_increment})>"
 
 
 class DailyReport(Base):
-    """
-    每日汇总表：用于生成长期报表
-    """
+    """每日汇总表：用于生成长期报表"""
     __tablename__ = 'daily_reports'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-
-    # 统计日期
     report_date = Column(Date, default=date.today, index=True, comment="统计日期")
-
-    # 当日汇总数据
     total_words = Column(Integer, default=0, comment="当日总字数")
-    total_duration = Column(Integer, default=0, comment="当日总专注时长(秒)")
 
-    # 关联
     user = relationship("User", back_populates="daily_reports")
 
-    def __repr__(self):
-        return f"<DailyReport(date={self.report_date}, words={self.total_words})>"
+
+class UserSource(Base):
+    """用户绑定的文件源配置"""
+    __tablename__ = 'user_sources'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    path = Column(Text, nullable=False)
+    source_type = Column(String(20), default='local')  # local or web
+
+    user = relationship("User", back_populates="saved_sources")
 
 
 class DatabaseManager:
@@ -94,7 +74,7 @@ class DatabaseManager:
     def init_db(self):
         """创建所有表结构"""
         Base.metadata.create_all(self.engine)
-        print("[Database] 表结构已更新：User, DetailRecord, DailyReport")
+        print("[Database] 表结构已更新")
 
     def get_session(self):
         return self.Session()

@@ -21,7 +21,10 @@ from core.network import NetworkManager
 class InkApplication:
     def __init__(self):
         self.app = QApplication(sys.argv)
-        self.app.setQuitOnLastWindowClosed(False)
+
+        # 【重要修改】设置为 True，这样关闭窗口时会自动退出应用
+        # 之前的 False 是导致进程在 PyCharm 中无法结束的直接原因
+        self.app.setQuitOnLastWindowClosed(True)
 
         self.network = NetworkManager(port=23456)
         self.network.message_received.connect(self.on_server_message)
@@ -36,13 +39,15 @@ class InkApplication:
         self.login_window.register_signal.connect(self.handle_register_request)
         self.login_window.send_code_signal.connect(self.handle_send_code_request)
         self.login_window.reset_pwd_signal.connect(self.handle_reset_pwd_request)
-
         self.float_window.restore_signal.connect(self.restore_from_float)
 
         self.is_night_mode = False
         self.current_user_info = {}
 
         self.setup_tray()
+
+        # 确保退出时清理资源
+        self.app.aboutToQuit.connect(self.quit_app)
 
     def setup_tray(self):
         self.tray_icon = QSystemTrayIcon(self.app)
@@ -55,7 +60,7 @@ class InkApplication:
         action_float.triggered.connect(self.switch_to_float)
 
         action_quit = QAction("Quit", self.app)
-        action_quit.triggered.connect(self.quit_app)
+        action_quit.triggered.connect(self.app.quit)  # 直接调用 app.quit
 
         tray_menu.addAction(action_show)
         tray_menu.addAction(action_float)
@@ -133,7 +138,9 @@ class InkApplication:
                     "nickname": data.get("nickname"),
                     "username": data.get("username"),
                     "email": data.get("email"),
-                    "avatar_data": data.get("avatar_data")
+                    "avatar_data": data.get("avatar_data"),
+                    "today_total": data.get("today_total", 0),  # 传递今日数据
+                    "saved_sources": data.get("saved_sources", [])  # 兼容字段
                 }
                 self.login_window.hide()
                 self.init_main_window()
@@ -143,7 +150,7 @@ class InkApplication:
         elif msg_type == "register_response":
             if status == "success":
                 QMessageBox.information(self.login_window, "Success", msg)
-                self.login_window.switch_page(0)  # 注册成功跳回登录页
+                self.login_window.switch_page(0)
             else:
                 QMessageBox.warning(self.login_window, "Register Failed", msg)
 
@@ -185,9 +192,14 @@ class InkApplication:
             self.main_window.restore_from_float()
 
     def quit_app(self):
+        print("[App] Quitting clean up...")
         if self.main_window:
-            self.main_window.monitor_thread.stop()
-        self.app.quit()
+            if hasattr(self.main_window, 'monitor_thread'):
+                print("[App] Stopping monitor thread...")
+                self.main_window.monitor_thread.stop()
+                self.main_window.monitor_thread.wait()  # 必须等待线程完全结束
+        if self.network:
+            self.network.close()
 
 
 if __name__ == '__main__':

@@ -7,6 +7,8 @@ from PyQt6.QtGui import QAction, QColor, QPixmap, QImage
 import os
 import sys
 import base64
+import time
+import json  # 新增 json 导入
 
 client_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if client_dir not in sys.path:
@@ -15,6 +17,7 @@ if client_dir not in sys.path:
 try:
     from .theme import ThemeManager, DEFAULT_ACCENT
     from .float_window import FloatWindow
+    from .analytics import AnalyticsPage
     from core.file_monitor import FileMonitor
 except ImportError as e:
     print(f"❌ 导入错误: {e}")
@@ -37,8 +40,16 @@ class MainWindow(QWidget):
         self.current_accent = DEFAULT_ACCENT
         self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
 
+        # 数据状态
         self.user_data = {"nickname": "Guest", "username": "guest", "avatar": None, "email": ""}
+        self.today_base_count = 0  # 从服务器获取的今日已存字数
+        self.session_increment = 0  # 本次运行新增字数
+        self.session_start_time = time.time()
 
+        # 本地配置路径
+        self.config_path = os.path.join(client_dir, "sources_config.json")
+
+        # 核心组件
         self.monitor_thread = FileMonitor()
         self.monitor_thread.stats_updated.connect(self.update_dashboard_stats)
 
@@ -59,7 +70,14 @@ class MainWindow(QWidget):
         self.setup_ui()
         self.apply_theme()
 
+        # 加载本地源配置
+        self.load_local_sources()
+
         self.monitor_thread.start()
+
+        # 监听网络消息以更新分析页面
+        if self.network:
+            self.network.message_received.connect(self.dispatch_network_message)
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -96,7 +114,7 @@ class MainWindow(QWidget):
 
         # 导航按钮
         self.nav_btns = {}
-        nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 0), ("👥  Friends", 0), ("⚙️  Settings", 1)]
+        nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 1), ("👥  Friends", 0), ("⚙️  Settings", 2)]
 
         for text, page_idx in nav_items:
             btn = QPushButton(text)
@@ -113,10 +131,19 @@ class MainWindow(QWidget):
 
         # === 右侧内容区 ===
         self.content_stack = QStackedWidget()
+
+        # Page 0: Dashboard
         self.page_dashboard = self.create_dashboard_page()
         self.content_stack.addWidget(self.page_dashboard)
+
+        # Page 1: Analytics
+        self.page_analytics = AnalyticsPage(self.network)
+        self.content_stack.addWidget(self.page_analytics)
+
+        # Page 2: Settings
         self.page_settings = self.create_settings_page()
         self.content_stack.addWidget(self.page_settings)
+
         main_layout.addWidget(self.content_stack)
 
     def create_dashboard_page(self):
@@ -159,8 +186,8 @@ class MainWindow(QWidget):
         # Cards
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
-        self.card_main = self.create_stat_card("Session Words", "0", "Keep pushing!", True)
-        self.card_sub = self.create_stat_card("Speed (WPH)", "0", "Words per hour", False)
+        self.card_main = self.create_stat_card("Today's Total", "0", "Session: +0", True)
+        self.card_sub = self.create_stat_card("Current Speed", "0", "Words per hour", False)
         cards_layout.addWidget(self.card_main, 2)
         cards_layout.addWidget(self.card_sub, 1)
         layout.addLayout(cards_layout)
@@ -190,10 +217,9 @@ class MainWindow(QWidget):
         form_card = QFrame()
         form_card.setObjectName("SettingsCard")
         form_layout = QFormLayout(form_card)
-        form_layout.setContentsMargins(0, 0, 0, 0)  # 减少内边距以贴合去背景后的效果
+        form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(20)
 
-        # Profile
         lbl_profile = QLabel("Profile Settings")
         lbl_profile.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
         form_layout.addRow(lbl_profile)
@@ -207,24 +233,20 @@ class MainWindow(QWidget):
         form_layout.addRow("Nickname:", self.edit_nickname)
 
         self.edit_email = QLineEdit()
-        self.edit_email.setPlaceholderText("Bind email for password recovery")
+        self.edit_email.setPlaceholderText("Bind email")
         form_layout.addRow("Email:", self.edit_email)
 
-        # Avatar
         self.btn_avatar_pick = QPushButton("Change Avatar")
         self.btn_avatar_pick.setFixedSize(120, 35)
         self.btn_avatar_pick.clicked.connect(self.open_avatar_picker)
-
         self.lbl_avatar_preview = QLabel()
         self.lbl_avatar_preview.setFixedSize(60, 60)
         self.lbl_avatar_preview.setStyleSheet("background: #eee; border-radius: 30px;")
         self.lbl_avatar_preview.setScaledContents(True)
-
         av_layout = QHBoxLayout()
         av_layout.addWidget(self.lbl_avatar_preview)
         av_layout.addWidget(self.btn_avatar_pick)
         av_layout.addStretch()
-
         form_layout.addRow("Avatar:", av_layout)
 
         line = QFrame()
@@ -232,7 +254,6 @@ class MainWindow(QWidget):
         line.setStyleSheet("color: #ddd;")
         form_layout.addRow(line)
 
-        # Theme
         lbl_theme = QLabel("Appearance")
         lbl_theme.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
         form_layout.addRow(lbl_theme)
@@ -252,22 +273,75 @@ class MainWindow(QWidget):
         layout.addSpacing(20)
         layout.addWidget(self.btn_save_settings, 0, Qt.AlignmentFlag.AlignRight)
 
-        # 移除 SettingsCard 的阴影，以符合“无矩形背景”的要求
-        # shadow = QGraphicsDropShadowEffect(self)
-        # shadow.setBlurRadius(15)
-        # shadow.setColor(QColor(0, 0, 0, 50))
-        # form_card.setGraphicsEffect(shadow)
-
         self.pending_avatar_b64 = None
         return page
 
-    # --- 功能函数 ---
+    # --- 本地配置管理 ---
+
+    def load_local_sources(self):
+        """从本地 JSON 加载文件源配置"""
+        if not os.path.exists(self.config_path):
+            return
+
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                sources = data.get("sources", [])
+
+                # 仅加载属于当前用户的配置（如果需要多用户支持，这里可以加个判断）
+                # 这里简化为直接加载，假设单机用户或不区分
+
+                for src in sources:
+                    path = src.get('path')
+                    stype = src.get('type', 'local')
+                    if path:
+                        is_web = (stype == 'web')
+                        self.monitor_thread.add_source(path, is_web)
+                        # 界面上也要添加
+                        icon = "🌐" if is_web else "📄"
+                        self.list_sources.addItem(f"{icon}  {path}")
+
+                self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
+                print(f"[Config] Loaded {len(sources)} sources from local config.")
+        except Exception as e:
+            print(f"[Config Error] Failed to load local sources: {e}")
+
+    def save_local_sources(self):
+        """保存当前文件源配置到本地 JSON"""
+        sources = []
+        for i in range(self.list_sources.count()):
+            item_text = self.list_sources.item(i).text()
+            # item_text 格式: "📄  C:/path/to/doc"
+            parts = item_text.split("  ", 1)
+            if len(parts) == 2:
+                icon, path = parts
+                stype = 'web' if '🌐' in icon else 'local'
+                sources.append({"path": path, "type": stype})
+
+        data = {"sources": sources, "last_updated": time.time()}
+
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print("[Config] Sources saved locally.")
+        except Exception as e:
+            print(f"[Config Error] Failed to save local sources: {e}")
+
+    # --- 核心逻辑 ---
 
     def set_user_info(self, data):
+        """登录成功后设置数据"""
         self.user_data = data
         nickname = data.get("nickname", "Writer")
         username = data.get("username", "unknown")
         email = data.get("email", "")
+
+        # 1. 恢复今日累计字数
+        self.today_base_count = data.get("today_total", 0)
+
+        # 2. 【已修改】不再从服务器加载 saved_sources，改用 load_local_sources 在初始化时加载
+        # 但如果需要账户隔离（不同账号不同配置），可以在这里根据 username 加载不同的本地文件
+        # 目前保持简单，统一使用 sources_config.json
 
         self.lbl_title.setText(f"Hi, {nickname}")
         self.lbl_id_display.setText(username)
@@ -286,6 +360,54 @@ class MainWindow(QWidget):
         else:
             self.load_default_avatar()
 
+    def update_dashboard_stats(self, total_in_monitor, increment, wph):
+        self.session_increment = increment
+        daily_total = self.today_base_count + increment
+        self.lbl_main_count.setText(str(daily_total))
+        self.card_main.findChild(QLabel, "CardSub").setText(f"Session: +{increment}")
+        self.lbl_speed.setText(str(wph))
+
+    def on_nav_clicked(self, page_idx, btn):
+        for b in self.nav_btns.values(): b.setChecked(False)
+        btn.setChecked(True)
+        self.content_stack.setCurrentIndex(page_idx)
+
+        # 如果切换到分析页，触发数据加载
+        if page_idx == 1:
+            self.page_analytics.load_data()
+
+    def dispatch_network_message(self, data):
+        """分发网络消息到各个子页面"""
+        if data.get("type") in ["analytics_data", "details_data"]:
+            self.page_analytics.handle_response(data)
+
+    def closeEvent(self, event):
+        """窗口关闭时的操作"""
+
+        # 1. 【新增】保存本地文件配置
+        self.save_local_sources()
+
+        # 2. 同步字数记录到云端（可选，依然保留以记录数据）
+        if self.network:
+            duration = int(time.time() - self.session_start_time)
+            # 只有当有数据变化时才上传
+            if self.session_increment > 0 or duration > 60:
+                self.network.send_request({
+                    "type": "sync_data",
+                    "increment": self.session_increment,
+                    "duration": duration
+                })
+
+            # 【已移除】不再同步 sources 到服务器
+            # self.network.send_request({"type": "sync_sources", "sources": sources})
+
+        # 等待一小会儿确保发送完成
+        import time as t
+        t.sleep(0.2)
+        event.accept()
+
+    # --- 其他辅助函数 ---
+
     def open_avatar_picker(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Avatar", "", "Images (*.png *.jpg *.jpeg)")
         if file_path:
@@ -302,136 +424,16 @@ class MainWindow(QWidget):
     def save_profile_changes(self):
         new_nickname = self.edit_nickname.text().strip()
         new_email = self.edit_email.text().strip()
-
         if not new_nickname:
             QMessageBox.warning(self, "Warning", "Nickname cannot be empty!")
             return
-
-        payload = {
-            "type": "update_profile",
-            "nickname": new_nickname,
-            "email": new_email
-        }
-        if self.pending_avatar_b64:
-            payload["avatar_data"] = self.pending_avatar_b64
-
+        payload = {"type": "update_profile", "nickname": new_nickname, "email": new_email}
+        if self.pending_avatar_b64: payload["avatar_data"] = self.pending_avatar_b64
         if self.network:
             self.network.send_request(payload)
             self.lbl_title.setText(f"Hi, {new_nickname}")
-            if self.pending_avatar_b64:
-                self.lbl_avatar.setPixmap(self.lbl_avatar_preview.pixmap())
+            if self.pending_avatar_b64: self.lbl_avatar.setPixmap(self.lbl_avatar_preview.pixmap())
             QMessageBox.information(self, "Sent", "Profile update request sent.")
-        else:
-            QMessageBox.critical(self, "Error", "No network connection.")
-
-    # --- 样式与主题 ---
-
-    def apply_theme(self):
-        t = self.current_theme
-        self.btn_color_pick.setStyleSheet(
-            f"background-color: {t['accent']}; color: white; border-radius: 5px; font-weight: bold;")
-        self.btn_color_pick.setText(self.current_accent)
-
-        shadow_c = QColor(0, 0, 0, 30) if t['name'] == 'light' else QColor(0, 0, 0, 180)
-        for w in [self.card_main, self.card_sub, self.card_pomodoro, self.sources_card]:
-            if hasattr(w, '_shadow'): w._shadow.setColor(shadow_c)
-
-        val_color = "#2D3436" if t['name'] == 'light' else "#FFFFFF"
-        sub_color = t['text_sub']
-
-        self.setStyleSheet(f"""
-            /* 全局文字颜色修复：确保 light 模式下默认文字为深色 */
-            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; font-family: 'Segoe UI', sans-serif; }}
-
-            /* 侧边栏 & 容器 */
-            QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
-            QFrame#UserProfile {{ background: transparent; }}
-
-            QLabel#UserAvatar {{ background-color: #ccc; border-radius: 24px; }}
-            QLabel#SidebarAppName {{ color: {t['accent']}; font-weight: 900; font-size: 22px; background: transparent; }}
-
-            /* Nav */
-            QPushButton#NavButton {{ text-align: left; padding: 12px 20px; border-radius: 10px; border: none; color: {t['text_sub']}; font-weight: 600; font-size: 15px; background: transparent; }}
-            QPushButton#NavButton:hover {{ background-color: {t['input_bg']}; color: {t['text_main']}; }}
-            QPushButton#NavButton:checked {{ background-color: {t['input_bg']}; color: {t['accent']}; }}
-
-            QLabel#PageTitle {{ font-size: 32px; font-weight: bold; color: {t['text_main']}; }}
-            QLabel#ListTitle {{ font-weight: bold; font-size: 16px; margin: 5px 0; color: {t['text_main']}; background: transparent; }}
-
-            /* Buttons: 增加了 ActionBtnLocal 和 ActionBtnWeb 以修复其颜色 */
-            QPushButton#ThemeToggle, QPushButton#PinButton, QPushButton#FloatButton, QPushButton#SaveButton,
-            QPushButton#ActionBtnLocal, QPushButton#ActionBtnWeb {{ 
-                border: 1px solid {t['border']}; border-radius: 10px; color: {t['text_main']}; background: {t['card_bg']}; 
-            }}
-            QPushButton#PinButton:checked, QPushButton#SaveButton:hover, QPushButton#ActionBtnLocal:hover, QPushButton#ActionBtnWeb:hover {{ 
-                background: {t['accent']}; color: white; border: none; 
-            }}
-            /* Local/Web 按钮 hover 时不一定是 accent，保持轻量 hover 效果 */
-            QPushButton#ActionBtnLocal:hover, QPushButton#ActionBtnWeb:hover {{
-                background-color: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['accent']};
-            }}
-
-            /* Cards */
-            QFrame#StatCard, QFrame#SourcesCard, QFrame#PomodoroCard {{ background: {t['card_bg']}; border-radius: 20px; }}
-            QFrame#StatCardPrimary {{ background: {t['accent']}; border-radius: 20px; color: white; }}
-
-            /* Settings Card: 去除背景和边框 */
-            QFrame#SettingsCard {{ background: transparent; border: none; }}
-
-            /* Card Text */
-            QFrame#StatCard QLabel, QFrame#StatCardPrimary QLabel, QFrame#PomodoroCard QLabel {{ background: transparent; }}
-            QFrame#StatCardPrimary QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: white; }}
-            QFrame#StatCardPrimary QLabel#CardTitle {{ font-size: 16px; opacity: 0.9; color: white; }}
-            QFrame#StatCardPrimary QLabel#CardSub {{ font-size: 14px; opacity: 0.8; color: white; }}
-
-            QFrame#StatCard QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: {val_color}; }}
-            QFrame#StatCard QLabel#CardTitle {{ font-size: 16px; color: {sub_color}; }}
-            /* 修复 Words per hour 在 Light 模式下的颜色 */
-            QFrame#StatCard QLabel#CardSub {{ font-size: 14px; color: {sub_color}; }}
-
-            /* Inputs */
-            QLineEdit {{ background-color: {t['input_bg']}; border: 1px solid {t['input_bg']}; border-radius: 8px; padding: 8px; color: {t['text_main']}; }}
-            QLineEdit:focus {{ border: 1px solid {t['accent']}; background-color: {t['card_bg']}; }}
-
-            /* Pomodoro */
-            QLineEdit#PomoTimeEdit {{ font-size: 56px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
-            QPushButton#PomoStartBtn {{ background: {t['accent']}; color: white; border-radius: 25px; font-size: 20px; border: none; }}
-            QPushButton#PomoResetBtn {{ background: {t['input_bg']}; color: {t['text_main']}; border-radius: 25px; font-size: 20px; border: none; }}
-
-            /* Pomodoro Float Checkbox Styling */
-            QCheckBox {{ color: {t['text_main']}; spacing: 5px; }}
-            QCheckBox::indicator {{ 
-                width: 18px; height: 18px; 
-                border: 2px solid {t['text_main']}; /* 未选中时：跟随文字颜色的边框 (Light模式为黑) */
-                border-radius: 4px; 
-                background: transparent; 
-            }}
-            QCheckBox::indicator:checked {{ 
-                background-color: {t['accent']}; /* 选中时：背景变为主题色 */
-                border: 2px solid {t['accent']}; /* 边框变为主题色 */
-            }}
-
-            QListWidget#SourceList {{ background: transparent; border: none; color: {t['text_main']}; font-size: 14px; }}
-            QListWidget::item:selected {{ background: {t['input_bg']}; color: {t['accent']}; }}
-
-            QMessageBox {{ background-color: {t['card_bg']}; }}
-            QMessageBox QLabel {{ color: {t['text_main']}; }}
-            QMessageBox QPushButton {{ 
-                background-color: {t['input_bg']}; 
-                color: {t['text_main']}; 
-                border: 1px solid {t['border']};
-                padding: 5px 15px;
-                border-radius: 5px;
-            }}
-        """)
-        self.apply_pomo_btn_style()
-
-    # --- 其他辅助函数 ---
-
-    def on_nav_clicked(self, page_idx, btn):
-        for b in self.nav_btns.values(): b.setChecked(False)
-        btn.setChecked(True)
-        self.content_stack.setCurrentIndex(page_idx)
 
     def open_color_picker(self):
         color = QColorDialog.getColor(QColor(self.current_accent), self, "Select Accent Color")
@@ -449,17 +451,19 @@ class MainWindow(QWidget):
         self.btn_theme_toggle.setText("☀ Light" if self.is_night else "🌙 Dark")
         self.apply_theme()
 
-    def update_dashboard_stats(self, total, increment, wph):
-        self.lbl_main_count.setText(str(increment))
-        self.lbl_speed.setText(str(wph))
-
     def add_local_source(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Doc", "", "Documents (*.docx *.txt)")
-        if file_path: self._perform_add(file_path, False)
+        if file_path:
+            self._perform_add(file_path, False)
+            # 添加后立即保存配置
+            self.save_local_sources()
 
     def add_web_source(self):
         text, ok = QInputDialog.getText(self, "Add Web", "URL:")
-        if ok and text: self._perform_add(text.strip(), True)
+        if ok and text:
+            self._perform_add(text.strip(), True)
+            # 添加后立即保存配置
+            self.save_local_sources()
 
     def _perform_add(self, path, is_web):
         if self.monitor_thread.add_source(path, is_web):
@@ -479,6 +483,8 @@ class MainWindow(QWidget):
         self.monitor_thread.remove_source(path)
         self.list_sources.takeItem(self.list_sources.row(item))
         self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
+        # 删除后立即保存配置
+        self.save_local_sources()
 
     def on_pomo_time_edited(self):
         if self.pomo_is_running: return
@@ -670,3 +676,64 @@ class MainWindow(QWidget):
         layout.addLayout(ctrl_layout)
         self.add_shadow(card)
         return card
+
+    # ... (Theme and Styling functions remain same) ...
+    def apply_theme(self):
+        t = self.current_theme
+        self.btn_color_pick.setStyleSheet(
+            f"background-color: {t['accent']}; color: white; border-radius: 5px; font-weight: bold;")
+        self.btn_color_pick.setText(self.current_accent)
+
+        shadow_c = QColor(0, 0, 0, 30) if t['name'] == 'light' else QColor(0, 0, 0, 180)
+        for w in [self.card_main, self.card_sub, self.card_pomodoro, self.sources_card]:
+            if hasattr(w, '_shadow'): w._shadow.setColor(shadow_c)
+
+        val_color = "#2D3436" if t['name'] == 'light' else "#FFFFFF"
+        sub_color = t['text_sub']
+
+        self.setStyleSheet(f"""
+            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; font-family: 'Segoe UI', sans-serif; }}
+            QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
+            QFrame#UserProfile {{ background: transparent; }}
+            QLabel#UserAvatar {{ background-color: #ccc; border-radius: 24px; }}
+            QLabel#SidebarAppName {{ color: {t['accent']}; font-weight: 900; font-size: 22px; background: transparent; }}
+            QPushButton#NavButton {{ text-align: left; padding: 12px 20px; border-radius: 10px; border: none; color: {t['text_sub']}; font-weight: 600; font-size: 15px; background: transparent; }}
+            QPushButton#NavButton:hover {{ background-color: {t['input_bg']}; color: {t['text_main']}; }}
+            QPushButton#NavButton:checked {{ background-color: {t['input_bg']}; color: {t['accent']}; }}
+            QLabel#PageTitle {{ font-size: 32px; font-weight: bold; color: {t['text_main']}; }}
+            QLabel#ListTitle {{ font-weight: bold; font-size: 16px; margin: 5px 0; color: {t['text_main']}; background: transparent; }}
+            QPushButton#ThemeToggle, QPushButton#PinButton, QPushButton#FloatButton, QPushButton#SaveButton,
+            QPushButton#ActionBtnLocal, QPushButton#ActionBtnWeb {{ 
+                border: 1px solid {t['border']}; border-radius: 10px; color: {t['text_main']}; background: {t['card_bg']}; 
+            }}
+            QPushButton#PinButton:checked, QPushButton#SaveButton:hover, QPushButton#ActionBtnLocal:hover, QPushButton#ActionBtnWeb:hover {{ 
+                background: {t['accent']}; color: white; border: none; 
+            }}
+            QPushButton#ActionBtnLocal:hover, QPushButton#ActionBtnWeb:hover {{
+                background-color: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['accent']};
+            }}
+            QFrame#StatCard, QFrame#SourcesCard, QFrame#PomodoroCard {{ background: {t['card_bg']}; border-radius: 20px; }}
+            QFrame#StatCardPrimary {{ background: {t['accent']}; border-radius: 20px; color: white; }}
+            QFrame#SettingsCard {{ background: transparent; border: none; }}
+            QFrame#StatCard QLabel, QFrame#StatCardPrimary QLabel, QFrame#PomodoroCard QLabel {{ background: transparent; }}
+            QFrame#StatCardPrimary QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: white; }}
+            QFrame#StatCardPrimary QLabel#CardTitle {{ font-size: 16px; opacity: 0.9; color: white; }}
+            QFrame#StatCardPrimary QLabel#CardSub {{ font-size: 14px; opacity: 0.8; color: white; }}
+            QFrame#StatCard QLabel#CardValue {{ font-size: 60px; font-weight: bold; color: {val_color}; }}
+            QFrame#StatCard QLabel#CardTitle {{ font-size: 16px; color: {sub_color}; }}
+            QFrame#StatCard QLabel#CardSub {{ font-size: 14px; color: {sub_color}; }}
+            QLineEdit {{ background-color: {t['input_bg']}; border: 1px solid {t['input_bg']}; border-radius: 8px; padding: 8px; color: {t['text_main']}; }}
+            QLineEdit:focus {{ border: 1px solid {t['accent']}; background-color: {t['card_bg']}; }}
+            QLineEdit#PomoTimeEdit {{ font-size: 56px; font-weight: bold; color: {t['accent']}; background: transparent; border: none; }}
+            QPushButton#PomoStartBtn {{ background: {t['accent']}; color: white; border-radius: 25px; font-size: 20px; border: none; }}
+            QPushButton#PomoResetBtn {{ background: {t['input_bg']}; color: {t['text_main']}; border-radius: 25px; font-size: 20px; border: none; }}
+            QCheckBox {{ color: {t['text_main']}; spacing: 5px; }}
+            QCheckBox::indicator {{ width: 18px; height: 18px; border: 2px solid {t['text_main']}; border-radius: 4px; background: transparent; }}
+            QCheckBox::indicator:checked {{ background-color: {t['accent']}; border: 2px solid {t['accent']}; }}
+            QListWidget#SourceList {{ background: transparent; border: none; color: {t['text_main']}; font-size: 14px; }}
+            QListWidget::item:selected {{ background: {t['input_bg']}; color: {t['accent']}; }}
+            QMessageBox {{ background-color: {t['card_bg']}; }}
+            QMessageBox QLabel {{ color: {t['text_main']}; }}
+            QMessageBox QPushButton {{ background-color: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['border']}; padding: 5px 15px; border-radius: 5px; }}
+        """)
+        self.apply_pomo_btn_style()

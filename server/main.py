@@ -7,11 +7,14 @@ import os
 import base64
 import time
 import random
+from datetime import date, datetime, timedelta
+from sqlalchemy import func
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.security import SecurityManager
-from database import db_manager, User
+# [修复] 移除了 UserSource 导入，解决了 ImportError
+from database import db_manager, User, DailyReport, DetailRecord
 from email_utils import EmailManager
 
 HOST = '0.0.0.0'
@@ -82,13 +85,11 @@ class ClientHandler(threading.Thread):
             if user.password_hash == password_hash:
                 self.user_id = user.id
 
-                # 读取头像
-                avatar_data = ""
-                if user.avatar_url and user.avatar_url != "default.jpg":
-                    path = os.path.join(AVATAR_DIR, user.avatar_url)
-                    if os.path.exists(path):
-                        with open(path, "rb") as f:
-                            avatar_data = base64.b64encode(f.read()).decode('utf-8')
+                # [修改] 移除了头像数据的读取和返回
+                # 仅获取今日统计数据
+                today = date.today()
+                daily_rep = session.query(DailyReport).filter_by(user_id=user.id, report_date=today).first()
+                today_total = daily_rep.total_words if daily_rep else 0
 
                 return {
                     "type": "login_response",
@@ -96,7 +97,8 @@ class ClientHandler(threading.Thread):
                     "nickname": user.nickname or user.username,
                     "username": user.username,
                     "email": user.email or "",
-                    "avatar_data": avatar_data
+                    "today_total": today_total
+                    # "avatar_data": ... 已移除
                 }
             else:
                 return {"type": "login_response", "status": "fail", "msg": "密码错误"}
@@ -139,14 +141,12 @@ class ClientHandler(threading.Thread):
             if not user.email:
                 return {"type": "code_response", "status": "fail", "msg": "该账号未绑定邮箱，无法找回密码"}
 
-            # 生成验证码
             code = str(random.randint(100000, 999999))
             verification_codes[username] = {
                 'code': code,
                 'time': time.time()
             }
 
-            # 发送邮件
             if EmailManager.send_verification_code(user.email, code):
                 return {"type": "code_response", "status": "success", "msg": f"验证码已发送至 {user.email}"}
             else:
@@ -163,21 +163,18 @@ class ClientHandler(threading.Thread):
         if not record:
             return {"type": "reset_response", "status": "fail", "msg": "请先获取验证码"}
 
-        # 验证码有效期 10 分钟
         if time.time() - record['time'] > 600:
             return {"type": "reset_response", "status": "fail", "msg": "验证码已过期"}
 
         if record['code'] != code:
             return {"type": "reset_response", "status": "fail", "msg": "验证码错误"}
 
-        # 更新密码
         session = db_manager.get_session()
         try:
             user = session.query(User).filter_by(username=username).first()
             if user:
                 user.password_hash = new_password_hash
                 session.commit()
-                # 清除验证码
                 del verification_codes[username]
                 return {"type": "reset_response", "status": "success", "msg": "密码重置成功"}
             else:
@@ -215,6 +212,85 @@ class ClientHandler(threading.Thread):
         finally:
             session.close()
 
+    def handle_sync_data(self, request):
+        if not self.user_id: return
+
+        increment = request.get('increment', 0)
+        duration = request.get('duration', 0)
+
+        if increment <= 0 and duration <= 0: return
+
+        session = db_manager.get_session()
+        try:
+            today = date.today()
+            daily = session.query(DailyReport).filter_by(user_id=self.user_id, report_date=today).first()
+            if not daily:
+                daily = DailyReport(user_id=self.user_id, report_date=today, total_words=0)
+                session.add(daily)
+
+            daily.total_words += increment
+
+            detail = DetailRecord(
+                user_id=self.user_id,
+                word_increment=increment,
+                duration_seconds=duration,
+                start_time=datetime.now() - timedelta(seconds=duration),
+                end_time=datetime.now()
+            )
+            session.add(detail)
+            session.commit()
+            return {"type": "sync_response", "status": "success"}
+        except Exception as e:
+            print(f"Sync error: {e}")
+            return {"type": "sync_response", "status": "error"}
+        finally:
+            session.close()
+
+    def handle_get_analytics(self, request):
+        if not self.user_id: return
+        session = db_manager.get_session()
+        try:
+            one_year_ago = date.today() - timedelta(days=365)
+            daily_records = session.query(DailyReport).filter(
+                DailyReport.user_id == self.user_id,
+                DailyReport.report_date >= one_year_ago
+            ).all()
+
+            heatmap_data = {str(r.report_date): r.total_words for r in daily_records}
+
+            return {
+                "type": "analytics_data",
+                "heatmap": heatmap_data,
+                "status": "success"
+            }
+        finally:
+            session.close()
+
+    def handle_get_details(self, request):
+        if not self.user_id: return
+        session = db_manager.get_session()
+        try:
+            three_days_ago = datetime.now() - timedelta(days=3)
+            records = session.query(DetailRecord).filter(
+                DetailRecord.user_id == self.user_id,
+                DetailRecord.start_time >= three_days_ago
+            ).order_by(DetailRecord.start_time.desc()).all()
+
+            details = []
+            for r in records:
+                details.append({
+                    "time": r.start_time.strftime("%Y-%m-%d %H:%M"),
+                    "increment": r.word_increment,
+                    "duration": r.duration_seconds
+                })
+            return {
+                "type": "details_data",
+                "data": details,
+                "status": "success"
+            }
+        finally:
+            session.close()
+
     def run(self):
         if not self.perform_handshake():
             self.conn.close()
@@ -245,6 +321,13 @@ class ClientHandler(threading.Thread):
                     response = self.handle_reset_password(request)
                 elif rtype == 'update_profile':
                     response = self.handle_update_profile(request)
+                elif rtype == 'sync_data':
+                    response = self.handle_sync_data(request)
+                elif rtype == 'get_analytics':
+                    response = self.handle_get_analytics(request)
+                elif rtype == 'get_details':
+                    response = self.handle_get_details(request)
+                # handle_sync_sources 已移除
                 else:
                     response = {"type": "response", "status": "ok", "msg": "Received"}
 
