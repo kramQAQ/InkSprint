@@ -31,6 +31,9 @@ class SocialPage(QWidget):
         self.lbl_room_name = None
         self.lbl_sprint_status = None
 
+        # 按钮引用以便加红点
+        self.btn_friend_requests = None
+
         self.setup_ui()
 
         # 计时器：每20秒更新群详情（排行榜）
@@ -54,6 +57,7 @@ class SocialPage(QWidget):
 
     def restore_group_state(self, group_info):
         """登录时如果已经在群里，直接恢复到群界面"""
+        print(f"[Social] Attempting restore group: {group_info}")
         if group_info and 'id' in group_info:
             gid = group_info['id']
             name = group_info.get('name', 'Unknown Room')
@@ -80,16 +84,15 @@ class SocialPage(QWidget):
         btn_search = QPushButton("Add Friend")
         btn_search.clicked.connect(self.search_and_add_friend)
 
-        # 新增查看请求按钮
-        btn_requests = QPushButton("Friend Requests")
-        btn_requests.clicked.connect(self.show_friend_requests)
+        self.btn_friend_requests = QPushButton("Friend Requests")
+        self.btn_friend_requests.clicked.connect(self.show_friend_requests)
 
         btn_refresh = QPushButton("Refresh List")
         btn_refresh.clicked.connect(self.load_friends)
 
         top.addWidget(self.search_input)
         top.addWidget(btn_search)
-        top.addWidget(btn_requests)
+        top.addWidget(self.btn_friend_requests)
         top.addWidget(btn_refresh)
         layout.addLayout(top)
 
@@ -133,12 +136,10 @@ class SocialPage(QWidget):
         self.lbl_room_name = QLabel("Room Name")
         self.lbl_room_name.setStyleSheet("font-size: 18px; font-weight: bold;")
 
-        # 退出按钮
         btn_leave = QPushButton("Leave Room")
         btn_leave.setStyleSheet("background-color: #ff6b6b; color: white; font-weight: bold;")
         btn_leave.clicked.connect(self.leave_room)
 
-        # Float Buttons
         btn_float_chat = QPushButton("Float Chat")
         btn_float_chat.clicked.connect(lambda: self.toggle_float_window("chat"))
         btn_float_rank = QPushButton("Float Rank")
@@ -211,6 +212,7 @@ class SocialPage(QWidget):
 
     def load_friends(self):
         if self.my_user_id > 0:
+            print("[Social] Sending get_friends request...")
             self.network.send_request({"type": "get_friends"})
 
     def search_and_add_friend(self):
@@ -220,6 +222,9 @@ class SocialPage(QWidget):
 
     def show_friend_requests(self):
         self.network.send_request({"type": "get_friend_requests"})
+        # 恢复按钮样式
+        if self.btn_friend_requests:
+            self.btn_friend_requests.setStyleSheet("")
 
     def open_request_dialog(self, requests):
         dlg = QDialog(self)
@@ -228,8 +233,10 @@ class SocialPage(QWidget):
         vbox = QVBoxLayout(dlg)
 
         lst = QListWidget()
+        if not requests:
+            lst.addItem("No pending requests.")
+
         for r in requests:
-            # Item text: "Nickname (Username)"
             text = f"{r['nickname']} ({r['username']})"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, r['request_id'])
@@ -240,6 +247,8 @@ class SocialPage(QWidget):
 
         def on_item_dbl_click(item):
             req_id = item.data(Qt.ItemDataRole.UserRole)
+            if not req_id: return
+
             reply = QMessageBox.question(dlg, "Respond", f"Accept request from {item.text()}?",
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
 
@@ -251,7 +260,7 @@ class SocialPage(QWidget):
 
             if action:
                 self.network.send_request({"type": "respond_friend", "request_id": req_id, "action": action})
-                lst.takeItem(lst.row(item))  # 移除已处理项
+                lst.takeItem(lst.row(item))
 
         lst.itemDoubleClicked.connect(on_item_dbl_click)
         dlg.exec()
@@ -280,6 +289,7 @@ class SocialPage(QWidget):
             self.network.send_request({"type": "join_group", "group_id": group_id})
 
     def enter_room_view(self, group_id, name, owner_id):
+        print(f"[Social] Entering room view: {name} ({group_id})")
         self.current_group_id = group_id
         self.is_group_owner = (owner_id == self.my_user_id)
         if self.lbl_room_name:
@@ -298,7 +308,6 @@ class SocialPage(QWidget):
         self.update_timer.start()
 
     def leave_room(self):
-        # 发送离开请求给服务器
         if self.current_group_id:
             self.network.send_request({"type": "leave_group", "group_id": self.current_group_id})
 
@@ -314,15 +323,19 @@ class SocialPage(QWidget):
         if self.current_group_id:
             self.network.send_request({"type": "get_group_detail", "group_id": self.current_group_id})
 
-    def send_chat_message(self):
-        txt = self.chat_input.text().strip()
-        if txt and self.current_group_id:
+    def send_chat_message(self, text=None):
+        if not isinstance(text, str):
+            text = None
+        if not text:
+            text = self.chat_input.text().strip()
+            self.chat_input.clear()
+
+        if text and self.current_group_id:
             self.network.send_request({
                 "type": "group_chat",
                 "group_id": self.current_group_id,
-                "content": txt
+                "content": text
             })
-            self.chat_input.clear()
 
     # --- Logic: Sprint ---
 
@@ -346,6 +359,8 @@ class SocialPage(QWidget):
     def toggle_float_window(self, mode):
         if not self.float_group_win:
             self.float_group_win = FloatGroupWindow(self)
+            self.float_group_win.msg_sent.connect(self.send_chat_message)
+
         if mode == 'chat':
             self.float_group_win.show_chat()
         else:
@@ -370,13 +385,15 @@ class SocialPage(QWidget):
             self.load_friends()
 
         elif dtype == "refresh_friend_requests":
-            # 收到新请求通知，可以选择给个红点或Toast，这里简单刷新
-            pass
+            if self.btn_friend_requests:
+                self.btn_friend_requests.setStyleSheet("background-color: #ff6b6b; color: white; font-weight: bold;")
+            QMessageBox.information(self, "Notification", "You have a new friend request!")
 
         elif dtype == "friend_requests_response":
             self.open_request_dialog(data.get("data", []))
 
         elif dtype == "get_friends_response":
+            print(f"[Social] Received friends: {data.get('data')}")  # Debug Log
             self.friend_list.clear()
             for f in data.get("data", []):
                 status_icon = "🟢" if f['status'] == 'Online' else "⚫"
@@ -392,16 +409,15 @@ class SocialPage(QWidget):
         elif dtype == "create_group_response":
             if data['status'] == 'success':
                 if 'group_id' in data:
-                    # 获取群名，如果resp里没回传，可以用默认
                     self.enter_room_view(data['group_id'], data.get('group_name', 'New Group'), self.my_user_id)
             else:
-                self._handle_group_error(data['msg'])
+                self._handle_group_error(data)
 
         elif dtype == "join_group_response":
             if data['status'] == 'success':
                 self.enter_room_view(data['group_id'], "Loading...", 0)
             else:
-                self._handle_group_error(data['msg'])
+                self._handle_group_error(data)
 
         elif dtype == "group_detail_response":
             if self.current_group_id != data['group_id']: return
@@ -465,20 +481,14 @@ class SocialPage(QWidget):
             if self.current_group_id == data['group_id']:
                 self.refresh_current_group_data()
 
-    def _handle_group_error(self, msg):
-        """处理加入/创建群组的错误"""
-        if "already in a group" in msg.lower() or "another group" in msg.lower():
+    def _handle_group_error(self, data):
+        # 如果返回了 current_group_id，说明用户卡在了一个房间里，提供跳转选项
+        if 'current_group_id' in data:
             reply = QMessageBox.question(self, "Conflict",
-                                         "You are currently in another room. Do you want to leave it to join this one?\n(Note: You need to manually leave via the 'Leave' button in your current room, or click Yes to force reset local view)",
+                                         "You are already in another room. Do you want to enter it?",
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            # 实际上，因为服务器没强制踢人，用户如果是意外掉线导致状态残留，可能需要特殊处理。
-            # 但这里我们引导用户：如果他在界面上看不到自己在哪，说明状态不同步。
-            # 为了简单起见，如果用户确实在别的群，他应该能看到那个群的界面（通过restore）。
-            # 如果看不到，我们可以让他在此处强制发送 Leave 请求。
             if reply == QMessageBox.StandardButton.Yes:
-                # 尝试发送一个通用的 Leave 信号给服务器，或者让用户去操作。
-                # 由于我们不知道用户到底在哪个群（除非 login 返回了），这里只能提示用户。
-                QMessageBox.information(self, "Info",
-                                        "Please enter your current room and click 'Leave'. If you cannot see the room, try restarting the app.")
+                self.enter_room_view(data['current_group_id'], "Recovered Room",
+                                     0)  # 0 means not owner for now, will update on refresh
         else:
-            QMessageBox.warning(self, "Failed", msg)
+            QMessageBox.warning(self, "Failed", data.get('msg', 'Unknown error'))

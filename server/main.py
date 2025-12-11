@@ -9,7 +9,7 @@ import time
 import random
 import traceback
 from datetime import date, timedelta, datetime
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -117,13 +117,14 @@ class ClientHandler(threading.Thread):
                 daily_report = session.query(DailyReport).filter_by(user_id=user.id, report_date=today).first()
                 today_total = daily_report.total_words if daily_report else 0
 
-                # Check if user is already in a group
+                # 检查用户是否已经在某个群组中 (断线重连/重启恢复)
                 current_group = session.query(GroupMember).filter_by(user_id=user.id).first()
                 group_info = {}
                 if current_group:
                     g = session.query(Group).get(current_group.group_id)
                     if g:
                         group_info = {"id": g.id, "name": g.name, "owner_id": g.owner_id}
+                        print(f"[Login] User {username} is already in group {g.id}")
 
                 print(f"[Login] User {username} logged in successfully.")
                 return {
@@ -153,7 +154,11 @@ class ClientHandler(threading.Thread):
             new_user = User(username=username, password_hash=password_hash, nickname=username, email=email or None)
             session.add(new_user)
             session.commit()
+            print(f"[Register] New user {username} created.")
             return {"type": "register_response", "status": "success", "msg": "注册成功"}
+        except Exception as e:
+            print(f"[Register Logic Error] {e}")
+            raise e
         finally:
             session.close()
 
@@ -319,7 +324,7 @@ class ClientHandler(threading.Thread):
             session.add(new_request)
             session.commit()
 
-            # 通知对方有新请求 (刷新对方的请求列表)
+            # 通知对方有新请求
             self.broadcast_to_users([friend_id], {"type": "refresh_friend_requests"})
 
             return {"type": "response", "status": "success", "msg": "Request sent"}
@@ -358,13 +363,17 @@ class ClientHandler(threading.Thread):
                 return {"type": "response", "status": "fail", "msg": "Invalid request"}
 
             sender_id = friend_req.user_id
+            print(f"[Friend] User {self.user_id} responding to request {request_id} from {sender_id} with {action}")
 
             if action == 'accept':
                 friend_req.status = 'accepted'
                 # 创建双向关系 (Me -> Sender) 也设为 accepted
                 reverse_rel = Friend(user_id=self.user_id, friend_id=sender_id, status='accepted')
                 session.add(reverse_rel)
+
+                # 确保双向都被提交
                 session.commit()
+                print(f"[Friend] Committed friendship between {self.user_id} and {sender_id}")
 
                 # 通知双方刷新好友列表
                 self.broadcast_to_users([self.user_id, sender_id], {"type": "refresh_friends"})
@@ -395,6 +404,7 @@ class ClientHandler(threading.Thread):
                         "nickname": u.nickname,
                         "status": status
                     })
+            print(f"[Friend] User {self.user_id} fetching friends: Found {len(friend_list)}")
             return {"type": "get_friends_response", "data": friend_list}
         finally:
             session.close()
@@ -411,15 +421,18 @@ class ClientHandler(threading.Thread):
             # 1. 检查是否已经在其他群
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current:
-                return {"type": "create_group_response", "status": "fail",
-                        "msg": "You are already in a group. Please leave it first."}
+                # 【新增】返回当前群ID，方便客户端恢复状态
+                return {
+                    "type": "create_group_response",
+                    "status": "fail",
+                    "msg": "You are already in a group.",
+                    "current_group_id": current.group_id
+                }
 
-            # 2. 创建新群
             new_group = Group(name=name, owner_id=self.user_id, is_private=is_private)
             session.add(new_group)
             session.flush()
 
-            # 3. 加入新群
             member = GroupMember(group_id=new_group.id, user_id=self.user_id)
             session.add(member)
             session.commit()
@@ -454,16 +467,21 @@ class ClientHandler(threading.Thread):
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current:
                 if current.group_id == group_id:
-                    return {"type": "join_group_response", "status": "success", "group_id": group_id}  # 已经在里面了，视为成功重连
+                    return {"type": "join_group_response", "status": "success", "group_id": group_id}
                 else:
-                    return {"type": "join_group_response", "status": "fail", "msg": "You are already in another group."}
+                    # 【新增】返回当前群ID
+                    return {
+                        "type": "join_group_response",
+                        "status": "fail",
+                        "msg": "You are already in another group.",
+                        "current_group_id": current.group_id
+                    }
 
             # 2. 检查人数
             count = session.query(GroupMember).filter_by(group_id=group_id).count()
             if count >= 10:
                 return {"type": "join_group_response", "status": "fail", "msg": "Group is full (Max 10)"}
 
-            # 3. 加入
             new_mem = GroupMember(group_id=group_id, user_id=self.user_id)
             session.add(new_mem)
 
@@ -482,11 +500,6 @@ class ClientHandler(threading.Thread):
         session = db_manager.get_session()
         try:
             session.query(GroupMember).filter_by(user_id=self.user_id, group_id=group_id).delete()
-
-            # 如果群里没人了，是否删除群？(可选，这里暂时不删，或者可以标记为inactive)
-            # count = session.query(GroupMember).filter_by(group_id=group_id).count()
-            # if count == 0: session.delete(...)
-
             session.commit()
             return {"type": "leave_group_response", "status": "success"}
         finally:
@@ -499,7 +512,6 @@ class ClientHandler(threading.Thread):
 
         session = db_manager.get_session()
         try:
-            # 验证用户是否在群里
             member = session.query(GroupMember).filter_by(group_id=group_id, user_id=self.user_id).first()
             if not member: return
 
@@ -667,9 +679,9 @@ class ClientHandler(threading.Thread):
                 elif rtype == 'add_friend':
                     response = self.handle_add_friend(request)
                 elif rtype == 'get_friend_requests':
-                    response = self.handle_get_friend_requests(request)  # 新增
+                    response = self.handle_get_friend_requests(request)
                 elif rtype == 'respond_friend':
-                    response = self.handle_respond_friend(request)  # 新增
+                    response = self.handle_respond_friend(request)
                 elif rtype == 'get_friends':
                     response = self.handle_get_friends(request)
                 elif rtype == 'create_group':
@@ -679,7 +691,7 @@ class ClientHandler(threading.Thread):
                 elif rtype == 'join_group':
                     response = self.handle_join_group(request)
                 elif rtype == 'leave_group':
-                    response = self.handle_leave_group(request)  # 新增
+                    response = self.handle_leave_group(request)
                 elif rtype == 'group_chat':
                     self.handle_send_group_msg(request)
                 elif rtype == 'get_group_detail':
@@ -693,7 +705,7 @@ class ClientHandler(threading.Thread):
                     self.send_packet(response)
 
             except json.JSONDecodeError:
-                print(f"[Handler Error] JSON Decode Failed. Possible decryption error.")
+                print(f"[Handler Error] JSON Decode Failed.")
                 break
             except Exception as e:
                 print(f"[Handler Error] {e}")
