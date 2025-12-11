@@ -36,6 +36,11 @@ class DetailRecord(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     word_increment = Column(Integer, nullable=False, comment="本次Session新增字数")
     duration_seconds = Column(Integer, default=0, comment="本次Session持续时长")
+
+    # 【新增】补充缺失的字段，用于记录来源
+    source_type = Column(String(20), default="unknown", comment="来源类型(local/web)")
+    source_path = Column(Text, nullable=True, comment="文件路径或URL")
+
     start_time = Column(DateTime, default=datetime.now)
     end_time = Column(DateTime, default=datetime.now)
 
