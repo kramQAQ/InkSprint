@@ -5,20 +5,24 @@ import json
 import sys
 import os
 import base64
+import time
+import random
 
-# 路径修复
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.security import SecurityManager
 from database import db_manager, User
+from email_utils import EmailManager
 
-# 配置
-HOST = '127.0.0.1'
+HOST = '0.0.0.0'
 PORT = 23456
 AVATAR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "avatars")
 
 if not os.path.exists(AVATAR_DIR):
     os.makedirs(AVATAR_DIR)
+
+# 内存中临时存储验证码: {username: {'code': '123456', 'time': timestamp}}
+verification_codes = {}
 
 
 class ClientHandler(threading.Thread):
@@ -30,7 +34,7 @@ class ClientHandler(threading.Thread):
         self.server_public_key_bytes = server_public_key_bytes
         self.aes_key = None
         self.running = True
-        self.user_id = None  # 登录成功后记录
+        self.user_id = None
 
     def send_packet(self, plain_text_dict):
         if not self.aes_key: return
@@ -67,25 +71,18 @@ class ClientHandler(threading.Thread):
             return False
 
     def handle_login(self, request):
-        """处理登录请求"""
         username = request.get('username')
-        password_hash = request.get('password')  # 客户端发来的是哈希
-
+        password_hash = request.get('password')
         session = db_manager.get_session()
         try:
             user = session.query(User).filter_by(username=username).first()
-
-            # 简化演示：如果没有用户则自动注册 (生产环境请移除)
             if not user:
-                print(f"[Login] New user auto-register: {username}")
-                user = User(username=username, password_hash=password_hash, nickname=username)
-                session.add(user)
-                session.commit()
+                return {"type": "login_response", "status": "fail", "msg": "用户不存在"}
 
             if user.password_hash == password_hash:
                 self.user_id = user.id
 
-                # 读取头像数据 (如果有)
+                # 读取头像
                 avatar_data = ""
                 if user.avatar_url and user.avatar_url != "default.jpg":
                     path = os.path.join(AVATAR_DIR, user.avatar_url)
@@ -98,33 +95,112 @@ class ClientHandler(threading.Thread):
                     "status": "success",
                     "nickname": user.nickname or user.username,
                     "username": user.username,
+                    "email": user.email or "",
                     "avatar_data": avatar_data
                 }
             else:
                 return {"type": "login_response", "status": "fail", "msg": "密码错误"}
+        finally:
+            session.close()
+
+    def handle_register(self, request):
+        username = request.get('username')
+        password_hash = request.get('password')
+        email = request.get('email', '')
+
+        session = db_manager.get_session()
+        try:
+            existing = session.query(User).filter_by(username=username).first()
+            if existing:
+                return {"type": "register_response", "status": "fail", "msg": "用户名已存在"}
+
+            new_user = User(
+                username=username,
+                password_hash=password_hash,
+                nickname=username,
+                email=email if email else None
+            )
+            session.add(new_user)
+            session.commit()
+            return {"type": "register_response", "status": "success", "msg": "注册成功，请登录"}
         except Exception as e:
-            print(f"[Login Error] {e}")
-            return {"type": "login_response", "status": "error", "msg": str(e)}
+            return {"type": "register_response", "status": "error", "msg": str(e)}
+        finally:
+            session.close()
+
+    def handle_send_reset_code(self, request):
+        username = request.get('username')
+        session = db_manager.get_session()
+        try:
+            user = session.query(User).filter_by(username=username).first()
+            if not user:
+                return {"type": "code_response", "status": "fail", "msg": "用户不存在"}
+
+            if not user.email:
+                return {"type": "code_response", "status": "fail", "msg": "该账号未绑定邮箱，无法找回密码"}
+
+            # 生成验证码
+            code = str(random.randint(100000, 999999))
+            verification_codes[username] = {
+                'code': code,
+                'time': time.time()
+            }
+
+            # 发送邮件
+            if EmailManager.send_verification_code(user.email, code):
+                return {"type": "code_response", "status": "success", "msg": f"验证码已发送至 {user.email}"}
+            else:
+                return {"type": "code_response", "status": "fail", "msg": "邮件发送失败，请稍后重试"}
+        finally:
+            session.close()
+
+    def handle_reset_password(self, request):
+        username = request.get('username')
+        code = request.get('code')
+        new_password_hash = request.get('new_password')
+
+        record = verification_codes.get(username)
+        if not record:
+            return {"type": "reset_response", "status": "fail", "msg": "请先获取验证码"}
+
+        # 验证码有效期 10 分钟
+        if time.time() - record['time'] > 600:
+            return {"type": "reset_response", "status": "fail", "msg": "验证码已过期"}
+
+        if record['code'] != code:
+            return {"type": "reset_response", "status": "fail", "msg": "验证码错误"}
+
+        # 更新密码
+        session = db_manager.get_session()
+        try:
+            user = session.query(User).filter_by(username=username).first()
+            if user:
+                user.password_hash = new_password_hash
+                session.commit()
+                # 清除验证码
+                del verification_codes[username]
+                return {"type": "reset_response", "status": "success", "msg": "密码重置成功"}
+            else:
+                return {"type": "reset_response", "status": "fail", "msg": "用户异常"}
         finally:
             session.close()
 
     def handle_update_profile(self, request):
-        """处理资料更新"""
         if not self.user_id:
             return {"type": "response", "status": "error", "msg": "未登录"}
 
         new_nickname = request.get('nickname')
-        avatar_b64 = request.get('avatar_data')  # Base64 string
+        new_email = request.get('email')
+        avatar_b64 = request.get('avatar_data')
 
         session = db_manager.get_session()
         try:
             user = session.query(User).filter_by(id=self.user_id).first()
             if user:
-                if new_nickname:
-                    user.nickname = new_nickname
+                if new_nickname: user.nickname = new_nickname
+                if new_email is not None: user.email = new_email if new_email.strip() else None
 
                 if avatar_b64:
-                    # 保存头像文件
                     file_name = f"user_{self.user_id}.png"
                     file_path = os.path.join(AVATAR_DIR, file_name)
                     with open(file_path, "wb") as f:
@@ -135,7 +211,6 @@ class ClientHandler(threading.Thread):
                 return {"type": "profile_updated", "status": "success"}
             return {"type": "response", "status": "error", "msg": "用户不存在"}
         except Exception as e:
-            print(f"[Update Error] {e}")
             return {"type": "response", "status": "error", "msg": str(e)}
         finally:
             session.close()
@@ -158,9 +233,17 @@ class ClientHandler(threading.Thread):
                 print(f"[Recv] {request.get('type')}")
 
                 response = None
-                if request.get('type') == 'login':
+                rtype = request.get('type')
+
+                if rtype == 'login':
                     response = self.handle_login(request)
-                elif request.get('type') == 'update_profile':
+                elif rtype == 'register':
+                    response = self.handle_register(request)
+                elif rtype == 'send_code':
+                    response = self.handle_send_reset_code(request)
+                elif rtype == 'reset_password':
+                    response = self.handle_reset_password(request)
+                elif rtype == 'update_profile':
                     response = self.handle_update_profile(request)
                 else:
                     response = {"type": "response", "status": "ok", "msg": "Received"}
