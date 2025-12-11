@@ -18,6 +18,7 @@ try:
     from .theme import ThemeManager, DEFAULT_ACCENT
     from .float_window import FloatWindow
     from .analytics import AnalyticsPage
+    from .social_page import SocialPage  # ✅ 新增：导入社交页面
     from core.file_monitor import FileMonitor
 except ImportError as e:
     print(f"❌ 导入错误: {e}")
@@ -33,7 +34,7 @@ class MainWindow(QWidget):
     def __init__(self, is_night=False, network_manager=None):
         super().__init__()
         self.setWindowTitle("InkSprint Dashboard")
-        self.resize(1050, 720)
+        self.resize(1100, 720)  # ✅ 调整宽度以适应社交界面
         self.network = network_manager
 
         self.is_night = is_night
@@ -45,6 +46,7 @@ class MainWindow(QWidget):
         self.today_base_count = 0  # 从服务器获取的今日已存字数
         self.session_increment = 0  # 本次运行新增字数
         self.session_start_time = time.time()
+        self.user_id = 0  # ✅ 新增：存储用户ID
 
         # 本地配置路径
         self.config_path = os.path.join(client_dir, "sources_config.json")
@@ -66,6 +68,12 @@ class MainWindow(QWidget):
         self.pomo_float_toggle_signal.connect(self.float_window.set_mode)
         self.monitor_thread.stats_updated.connect(self.float_window.update_data)
         self.pomo_update_signal.connect(self.float_window.update_timer)
+
+        # ✅ 初始化所有页面引用
+        self.page_dashboard = None
+        self.page_analytics = None
+        self.page_social = None
+        self.page_settings = None
 
         self.setup_ui()
         self.apply_theme()
@@ -114,7 +122,8 @@ class MainWindow(QWidget):
 
         # 导航按钮
         self.nav_btns = {}
-        nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 1), ("👥  Friends", 0), ("⚙️  Settings", 2)]
+        # ✅ 更新导航项，加入 Social (Index 2)
+        nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 1), ("👥  Social", 2), ("⚙️  Settings", 3)]
 
         for text, page_idx in nav_items:
             btn = QPushButton(text)
@@ -140,7 +149,11 @@ class MainWindow(QWidget):
         self.page_analytics = AnalyticsPage(self.network)
         self.content_stack.addWidget(self.page_analytics)
 
-        # Page 2: Settings
+        # Page 2: Social (✅ 静态初始化，避免动态崩溃)
+        self.page_social = SocialPage(self.network, user_id=0)
+        self.content_stack.addWidget(self.page_social)
+
+        # Page 3: Settings
         self.page_settings = self.create_settings_page()
         self.content_stack.addWidget(self.page_settings)
 
@@ -332,16 +345,13 @@ class MainWindow(QWidget):
     def set_user_info(self, data):
         """登录成功后设置数据"""
         self.user_data = data
+        self.user_id = data.get("user_id", 0)  # ✅ 获取用户ID
         nickname = data.get("nickname", "Writer")
         username = data.get("username", "unknown")
         email = data.get("email", "")
 
         # 1. 恢复今日累计字数
         self.today_base_count = data.get("today_total", 0)
-
-        # 2. 【已修改】不再从服务器加载 saved_sources，改用 load_local_sources 在初始化时加载
-        # 但如果需要账户隔离（不同账号不同配置），可以在这里根据 username 加载不同的本地文件
-        # 目前保持简单，统一使用 sources_config.json
 
         self.lbl_title.setText(f"Hi, {nickname}")
         self.lbl_id_display.setText(username)
@@ -360,6 +370,17 @@ class MainWindow(QWidget):
         else:
             self.load_default_avatar()
 
+        # ✅ 激活社交页面
+        if self.page_social:
+            self.page_social.set_user_id(self.user_id)
+            if self.user_id:
+                self.page_social.load_friends()
+                self.page_social.refresh_group_list()
+
+                # 【新增】如果服务端返回了 current_group，自动恢复房间视图
+                if 'current_group' in data and data['current_group']:
+                    self.page_social.restore_group_state(data['current_group'])
+
     def update_dashboard_stats(self, total_in_monitor, increment, wph):
         self.session_increment = increment
         daily_total = self.today_base_count + increment
@@ -375,11 +396,25 @@ class MainWindow(QWidget):
         # 如果切换到分析页，触发数据加载
         if page_idx == 1:
             self.page_analytics.load_data()
+        # ✅ 如果切换到社交页，刷新数据
+        elif page_idx == 2 and self.page_social and self.user_id:
+            self.page_social.load_friends()
+            self.page_social.refresh_group_list()
 
     def dispatch_network_message(self, data):
         """分发网络消息到各个子页面"""
-        if data.get("type") in ["analytics_data", "details_data"]:
+        rtype = data.get("type", "")
+        if rtype in ["analytics_data", "details_data"]:
             self.page_analytics.handle_response(data)
+
+        # ✅ 社交消息处理
+        elif rtype in ["search_user_response", "get_friends_response",
+                       "group_list_response", "create_group_response", "join_group_response",
+                       "group_detail_response", "group_msg_push", "sprint_status_push",
+                       "refresh_friends", "refresh_friend_requests", "friend_requests_response",
+                       "respond_friend_response"]:
+            if self.page_social:
+                self.page_social.handle_network_msg(data)
 
     def closeEvent(self, event):
         """窗口关闭时的操作"""
@@ -735,5 +770,9 @@ class MainWindow(QWidget):
             QMessageBox {{ background-color: {t['card_bg']}; }}
             QMessageBox QLabel {{ color: {t['text_main']}; }}
             QMessageBox QPushButton {{ background-color: {t['input_bg']}; color: {t['text_main']}; border: 1px solid {t['border']}; padding: 5px 15px; border-radius: 5px; }}
+            QTabWidget::pane {{ border: none; }}
+            QTabBar::tab {{ background: {t['card_bg']}; color: {t['text_main']}; padding: 10px 20px; border-top-left-radius: 5px; border-top-right-radius: 5px; margin-right: 2px; }}
+            QTabBar::tab:selected {{ background: {t['accent']}; color: white; }}
+            QTextEdit {{ background-color: {t['input_bg']}; border-radius: 8px; border: 1px solid {t['border']}; padding: 5px; }}
         """)
         self.apply_pomo_btn_style()

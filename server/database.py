@@ -1,4 +1,5 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Date
+import os
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 
@@ -24,12 +25,76 @@ class User(Base):
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
     saved_sources = relationship("UserSource", back_populates="user", cascade="all, delete-orphan")
 
+    # 好友关系
+    friends_sent = relationship("Friend", foreign_keys="[Friend.user_id]", back_populates="user")
+
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}')>"
 
 
+class Friend(Base):
+    """好友关系表"""
+    __tablename__ = 'friends'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    friend_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    status = Column(String(20), default="accepted")
+    created_at = Column(DateTime, default=datetime.now)
+
+    user = relationship("User", foreign_keys=[user_id], back_populates="friends_sent")
+
+
+class Group(Base):
+    """群组/房间表"""
+    __tablename__ = 'groups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), nullable=False)
+    owner_id = Column(Integer, ForeignKey('users.id'))
+    is_private = Column(Boolean, default=False)
+    description = Column(String(200), nullable=True)
+
+    # 拼字相关状态
+    sprint_active = Column(Boolean, default=False)
+    sprint_start_time = Column(DateTime, nullable=True)
+    sprint_target_words = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
+    messages = relationship("GroupMessage", back_populates="group", cascade="all, delete-orphan")
+
+
+class GroupMember(Base):
+    """群成员关联表"""
+    __tablename__ = 'group_members'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('groups.id'))
+    user_id = Column(Integer, ForeignKey('users.id'))
+    joined_at = Column(DateTime, default=datetime.now)
+
+    group = relationship("Group", back_populates="members")
+
+
+class GroupMessage(Base):
+    """群聊消息表"""
+    __tablename__ = 'group_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('groups.id'))
+    user_id = Column(Integer, ForeignKey('users.id'))
+    user_nickname = Column(String(50))
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now)
+
+    group = relationship("Group", back_populates="messages")
+
+
 class DetailRecord(Base):
-    """高频明细表：记录每一次具体的写作行为(心跳/Session粒度)"""
+    """高频明细表"""
     __tablename__ = 'detail_records'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -37,7 +102,6 @@ class DetailRecord(Base):
     word_increment = Column(Integer, nullable=False, comment="本次Session新增字数")
     duration_seconds = Column(Integer, default=0, comment="本次Session持续时长")
 
-    # 【新增】补充缺失的字段，用于记录来源
     source_type = Column(String(20), default="unknown", comment="来源类型(local/web)")
     source_path = Column(Text, nullable=True, comment="文件路径或URL")
 
@@ -48,7 +112,7 @@ class DetailRecord(Base):
 
 
 class DailyReport(Base):
-    """每日汇总表：用于生成长期报表"""
+    """每日汇总表"""
     __tablename__ = 'daily_reports'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -66,14 +130,22 @@ class UserSource(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     path = Column(Text, nullable=False)
-    source_type = Column(String(20), default='local')  # local or web
+    source_type = Column(String(20), default='local')
 
     user = relationship("User", back_populates="saved_sources")
 
 
 class DatabaseManager:
-    def __init__(self, db_url='sqlite:///server_data.db'):
-        self.engine = create_engine(db_url, echo=False)
+    def __init__(self, db_url=None):
+        if db_url is None:
+            # 【修复】使用绝对路径，确保无论在哪启动，都使用同一个数据库文件
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(base_dir, 'server_data.db')
+            db_url = f'sqlite:///{db_path}'
+            print(f"[Database] Using database file: {db_path}")
+
+        # 添加 check_same_thread=False 以支持多线程
+        self.engine = create_engine(db_url, echo=False, connect_args={'check_same_thread': False})
         self.Session = sessionmaker(bind=self.engine)
 
     def init_db(self):
@@ -85,7 +157,8 @@ class DatabaseManager:
         return self.Session()
 
 
-db_manager = DatabaseManager('sqlite:///server_data.db')
+# 初始化时不传参数，让它自动使用绝对路径
+db_manager = DatabaseManager()
 
 if __name__ == '__main__':
     db_manager.init_db()
