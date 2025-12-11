@@ -24,7 +24,6 @@ if not os.path.exists(AVATAR_DIR):
 # 内存中临时存储验证码: {username: {'code': '123456', 'time': timestamp}}
 verification_codes = {}
 
-
 class ClientHandler(threading.Thread):
     def __init__(self, conn, addr, server_private_key, server_public_key_bytes):
         super().__init__()
