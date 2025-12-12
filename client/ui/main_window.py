@@ -78,7 +78,7 @@ class MainWindow(QWidget):
 
         self.page_dashboard = None
         self.page_analytics = None
-        self.page_social = None
+        self.page_social = None  # 在 setup_ui 中初始化
         self.page_settings = None
 
         self.setup_ui()
@@ -149,6 +149,7 @@ class MainWindow(QWidget):
         self.page_analytics = AnalyticsPage(self.network)
         self.content_stack.addWidget(self.page_analytics)
 
+        # 【修复 1.3】初始化 SocialPage，但 user_id 暂设为 0
         self.page_social = SocialPage(self.network, user_id=0)
         self.content_stack.addWidget(self.page_social)
 
@@ -345,13 +346,19 @@ class MainWindow(QWidget):
         else:
             self.load_default_avatar()
 
+        # 【修复 1.4】确保 SocialPage 接收到 current_group 信息
         if self.page_social:
             self.page_social.set_user_id(self.user_id)
-            if self.user_id:
-                self.page_social.load_friends()
+            current_group = data.get('current_group', {})
+            if current_group:
+                # 恢复房间状态
+                self.page_social.restore_group_state(current_group)
+            else:
+                # 修复 3：如果不在任何房间，确保刷新大厅列表
                 self.page_social.refresh_group_list()
-                if 'current_group' in data and data['current_group']:
-                    self.page_social.restore_group_state(data['current_group'])
+
+                # 无论是否在房间，都需要加载好友列表
+            self.page_social.load_friends()
 
     def update_dashboard_stats(self, total_in_monitor, increment, wph):
         self.session_increment = increment
@@ -386,8 +393,11 @@ class MainWindow(QWidget):
             self.sync_data_incrementally()
             self.page_analytics.load_data()
         elif page_idx == 2 and self.page_social and self.user_id:
+            # 社交页被选中时，强制刷新一次好友列表和大厅（防止计时器失效或延迟）
             self.page_social.load_friends()
-            self.page_social.refresh_group_list()
+            # 如果在房间内，会请求详情，否则会请求大厅列表
+            if not self.page_social.current_group_id:
+                self.page_social.refresh_group_list()
 
     def sync_data_incrementally(self):
         if not self.network: return
@@ -410,13 +420,9 @@ class MainWindow(QWidget):
         rtype = data.get("type", "")
         if rtype in ["analytics_data", "details_data"]:
             self.page_analytics.handle_response(data)
-        elif rtype in ["search_user_response", "get_friends_response",
-                       "group_list_response", "create_group_response", "join_group_response",
-                       "group_detail_response", "group_msg_push", "sprint_status_push",
-                       "refresh_friends", "refresh_friend_requests", "friend_requests_response",
-                       "respond_friend_response", "refresh_groups"]:
-            if self.page_social:
-                self.page_social.handle_network_msg(data)
+        elif self.page_social:
+            # 【修复 2】所有社交相关的消息都交给 SocialPage 处理
+            self.page_social.handle_network_msg(data)
 
     def closeEvent(self, event):
         self.save_local_sources()

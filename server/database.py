@@ -1,5 +1,6 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean, \
+    UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime, date
 
@@ -25,24 +26,36 @@ class User(Base):
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
     saved_sources = relationship("UserSource", back_populates="user", cascade="all, delete-orphan")
 
-    # 好友关系
-    friends_sent = relationship("Friend", foreign_keys="[Friend.user_id]", back_populates="user")
-
-    def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}')>"
+    # 移除旧的 friends_sent 关联
 
 
-class Friend(Base):
-    """好友关系表"""
-    __tablename__ = 'friends'
+class FriendRequest(Base):
+    """【新】好友请求表"""
+    __tablename__ = 'friend_requests'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    friend_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    status = Column(String(20), default="accepted")
+    sender_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    receiver_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
 
-    user = relationship("User", foreign_keys=[user_id], back_populates="friends_sent")
+    __table_args__ = (
+        UniqueConstraint('sender_id', 'receiver_id', name='uq_sender_receiver'),
+    )
+
+
+class Friendship(Base):
+    """【新】已确立的好友关系表"""
+    __tablename__ = 'friendships'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # 关系存储规范：user_a_id 永远小于 user_b_id，确保每对好友只存一条记录
+    user_a_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    user_b_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('user_a_id', 'user_b_id', name='uq_friendship'),
+    )
 
 
 class Group(Base):
@@ -73,7 +86,7 @@ class GroupMember(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id'))
-    user_id = Column(Integer, ForeignKey('users.id'))
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True)  # 【关键】新增 unique 约束：用户只能加入一个房间
     joined_at = Column(DateTime, default=datetime.now)
 
     group = relationship("Group", back_populates="members")
@@ -91,6 +104,21 @@ class GroupMessage(Base):
     timestamp = Column(DateTime, default=datetime.now)
 
     group = relationship("Group", back_populates="messages")
+
+
+class SprintScore(Base):
+    """【新】用户在特定房间的拼字得分汇总表 (用于加速 Leaderboard)"""
+    __tablename__ = 'sprint_scores'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(Integer, ForeignKey('groups.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    # 记录用户在当前拼字周期内的累计字数
+    current_score = Column(Integer, default=0)
+
+    __table_args__ = (
+        UniqueConstraint('group_id', 'user_id', name='uq_group_user_score'),
+    )
 
 
 class DetailRecord(Base):

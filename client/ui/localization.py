@@ -7,6 +7,7 @@ STRINGS = {
     "error_title": "错误",
     "success_title": "成功",
     "confirm_title": "确认",
+    "lbl_loading": "加载中...", # 新增
 
     # --- 托盘菜单 (System Tray) ---
     "tray_show": "显示主面板",
@@ -111,6 +112,7 @@ STRINGS = {
 
     # 好友相关
     "search_placeholder": "搜索用户ID或昵称",
+    "btn_search_user": "搜索用户", # 修改文案
     "btn_add_friend": "添加好友",
     "btn_friend_reqs": "好友请求",
     "btn_refresh_list": "刷新列表",
@@ -118,12 +120,13 @@ STRINGS = {
     "item_no_reqs": "暂无待处理请求。",
     "lbl_dbl_click": "双击列表项进行处理:",
     "msg_new_req": "你收到一个新的好友请求！",
-    "msg_req_confirm_title": "回应",
+    "msg_req_confirm_title": "回应请求", # 优化文案
     "msg_req_confirm_fmt": "接受来自 {} 的请求?",
     "msg_found_user_title": "找到用户",
     "msg_add_confirm_fmt": "添加 {} ({}) 为好友?",
     "msg_not_found_title": "未找到",
     "msg_user_not_found": "用户不存在。",
+    "msg_friend_list_updated": "好友列表已更新！", # 新增
 
     # 房间相关
     "btn_create_group": "➕ 创建房间",
@@ -147,7 +150,9 @@ STRINGS = {
     "dialog_private_msg": "是否设置为私密房间？",
     "dialog_sprint_title": "开始拼字",
     "dialog_sprint_target": "目标字数:",
-    "msg_recover_room": "你已在另一个房间中，是否进入？",
+    "msg_leave_confirm": "确定要离开房间 [{}] 吗？", # 新增
+    "msg_leave_success": "已成功离开房间。", # 新增
+    "msg_in_other_room": "你已在另一个房间 (ID: {}) 内，请先离开原房间。", # 优化单人群组错误提示
     "msg_failed": "失败",
     "msg_unknown_err": "未知错误",
 

@@ -131,13 +131,15 @@ class InkApplication:
 
         if msg_type == "login_response":
             if status == "success":
+                # 【修复 1.1】确保 current_group 被保存
                 self.current_user_info = {
                     "nickname": data.get("nickname"),
                     "username": data.get("username"),
                     "email": data.get("email"),
                     "avatar_data": data.get("avatar_data"),
                     "today_total": data.get("today_total", 0),  # 传递今日数据
-                    "saved_sources": data.get("saved_sources", [])  # 兼容字段
+                    "current_group": data.get("current_group", {}),  # 确保房间信息被传递
+                    "user_id": data.get("user_id", 0)  # 确保 user_id 被传递
                 }
                 self.login_window.hide()
                 self.init_main_window()
@@ -165,18 +167,20 @@ class InkApplication:
             else:
                 QMessageBox.warning(self.login_window, STRINGS["title_reset_fail"], msg)
 
-        elif msg_type == "profile_updated":
-            print("[App] Profile updated successfully")
+        # 将其他消息转发给主窗口（以便 SocialPage 接收）
+        elif self.main_window:
+            self.main_window.dispatch_network_message(data)
 
     def init_main_window(self):
         if not self.main_window:
             self.is_night_mode = self.login_window.is_night
             self.main_window = MainWindow(is_night=self.is_night_mode, network_manager=self.network)
-            self.main_window.set_user_info(self.current_user_info)
 
-            if self.float_window:
-                self.float_window.close()
-                self.float_window = None
+            # 【修复 1.2】传递 current_group 信息，以便 MainWindow 中的 SocialPage 进行恢复
+            user_data = self.current_user_info.copy()
+
+            # MainWindow 期望接收 user_id, nickname 等
+            self.main_window.set_user_info(user_data)
 
         self.main_window.show()
 
