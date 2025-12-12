@@ -1,10 +1,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QButtonGroup, QScrollArea, QTableWidget,
                              QTableWidgetItem, QHeaderView, QDialog)
-from PyQt6.QtCore import Qt, QDateTime, QDate
+from PyQt6.QtCore import Qt, QDateTime, QDate, QTimer
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont
 import datetime
-from .localization import STRINGS # 导入汉化配置
+from .localization import STRINGS  # 导入汉化配置
 
 
 class HeatmapWidget(QWidget):
@@ -23,19 +23,20 @@ class HeatmapWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 【修改】严格匹配用户要求的五档颜色
-        # 原色（灰色）浅绿 绿 深绿 墨绿
-        # 0, 1, 500, 1500, 3000
+        # 颜色分级
         colors = [
             QColor("#EBEDF0"),  # 0
-            QColor("#9BE9A8"),  # 1-499 (浅绿)
-            QColor("#40C463"),  # 500-1499 (绿)
-            QColor("#30A14E"),  # 1500-2999 (深绿)
-            QColor("#216E39")   # 3000+ (墨绿)
+            QColor("#9BE9A8"),  # 1-499
+            QColor("#40C463"),  # 500-1499
+            QColor("#30A14E"),  # 1500-2999
+            QColor("#216E39")  # 3000+
         ]
 
+        # 【关键】每次重绘都获取实时的今天，确保跨天后格子能往后推
         today = datetime.date.today()
         one_year_ago = today - datetime.timedelta(days=365)
+
+        # 计算起始位置（使得最左侧是当前星期）
         start_date = one_year_ago - datetime.timedelta(days=one_year_ago.weekday() + 1)
         if start_date.weekday() != 6:
             start_date = one_year_ago - datetime.timedelta(days=(one_year_ago.weekday() + 1) % 7)
@@ -60,8 +61,6 @@ class HeatmapWidget(QWidget):
                     color_idx = 2
                 elif count >= 1:
                     color_idx = 1
-                else:
-                    color_idx = 0
 
                 painter.setBrush(QBrush(colors[color_idx]))
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -146,6 +145,20 @@ class AnalyticsPage(QWidget):
         lbl_title = QLabel(STRINGS["analytics_title_header"])
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
         top_bar.addWidget(lbl_title)
+
+        # 【新增】刷新按钮
+        self.btn_refresh = QPushButton("🔄")
+        self.btn_refresh.setFixedSize(35, 35)
+        self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_refresh.setToolTip("刷新数据 (Refresh)")
+        self.btn_refresh.setStyleSheet("""
+            QPushButton { border: 1px solid #ddd; border-radius: 5px; background: white; font-size: 16px; }
+            QPushButton:hover { background-color: #f0f0f0; }
+            QPushButton:pressed { background-color: #e0e0e0; }
+        """)
+        self.btn_refresh.clicked.connect(self.load_data)
+        top_bar.addWidget(self.btn_refresh)
+
         top_bar.addStretch()
 
         self.btn_group = QButtonGroup(self)
@@ -189,19 +202,29 @@ class AnalyticsPage(QWidget):
 
     def load_data(self):
         if self.network:
-            print("[Analytics] Fetching data...")
+            print("[Analytics] Manually refreshing data...")
             self.network.send_request({"type": "get_analytics"})
+
+            # 简单的禁用动画，防止连点
+            self.btn_refresh.setEnabled(False)
+            QTimer.singleShot(1000, lambda: self.btn_refresh.setEnabled(True))
 
     def handle_response(self, data):
         if data.get("type") == "analytics_data":
             self.full_heatmap_data = data.get("heatmap", {})
             self.heatmap.set_data(self.full_heatmap_data)
-            self.update_chart_view("Week")
+
+            # 刷新当前选中的图表
+            mode = "Week"
+            if self.mode_btns["Month"].isChecked(): mode = "Month"
+            if self.mode_btns["Year"].isChecked(): mode = "Year"
+            self.update_chart_view(mode)
 
         elif data.get("type") == "details_data":
             self.open_details_dialog(data.get("data", []))
 
     def update_chart_view(self, mode):
+        # 【关键】使用 datetime.date.today() 获取当前实时日期
         today = datetime.date.today()
         labels = []
         values = []

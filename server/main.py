@@ -25,8 +25,6 @@ if not os.path.exists(AVATAR_DIR):
     os.makedirs(AVATAR_DIR)
 
 verification_codes = {}
-
-# 全局在线客户端映射 {user_id: client_handler_instance}
 connected_clients = {}
 clients_lock = threading.Lock()
 
@@ -80,7 +78,6 @@ class ClientHandler(threading.Thread):
             return False
 
     def broadcast_to_users(self, user_ids, message_dict):
-        """向指定用户列表发送消息"""
         with clients_lock:
             for uid in user_ids:
                 if uid in connected_clients:
@@ -90,7 +87,6 @@ class ClientHandler(threading.Thread):
                         pass
 
     def broadcast_to_all(self, message_dict):
-        """向所有在线用户发送消息"""
         with clients_lock:
             for uid, client in connected_clients.items():
                 try:
@@ -123,18 +119,18 @@ class ClientHandler(threading.Thread):
                         with open(path, "rb") as f:
                             avatar_data = base64.b64encode(f.read()).decode('utf-8')
 
+                # 获取今日数据时，这里因为是 Login，没有 Client 时间戳，只能依赖 Server 时间
+                # 或者可以改进为 Login 协议也带时间戳，但通常这里误差可接受
                 today = date.today()
                 daily_report = session.query(DailyReport).filter_by(user_id=user.id, report_date=today).first()
                 today_total = daily_report.total_words if daily_report else 0
 
-                # 检查用户是否已经在某个群组中 (断线重连/重启恢复)
                 current_group = session.query(GroupMember).filter_by(user_id=user.id).first()
                 group_info = {}
                 if current_group:
                     g = session.query(Group).get(current_group.group_id)
                     if g:
                         group_info = {"id": g.id, "name": g.name, "owner_id": g.owner_id}
-                        print(f"[Login] User {username} is already in group {g.id}")
 
                 print(f"[Login] User {username} logged in successfully.")
                 return {
@@ -176,7 +172,17 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         increment = request.get('increment', 0)
         duration = request.get('duration', 0)
+        client_ts = request.get('timestamp')  # 【关键】获取客户端时间戳
+
         if increment <= 0 and duration <= 0: return None
+
+        # 如果客户端传了时间戳，就用客户端的，否则 fallback 到服务器时间
+        if client_ts:
+            record_time = datetime.fromtimestamp(client_ts)
+            today = record_time.date()
+        else:
+            record_time = datetime.now()
+            today = date.today()
 
         session = db_manager.get_session()
         try:
@@ -185,10 +191,11 @@ class ClientHandler(threading.Thread):
                 word_increment=increment,
                 duration_seconds=duration,
                 source_type="client_sync",
-                end_time=datetime.now()
+                end_time=record_time  # 使用客户端时间
             )
             session.add(new_record)
-            today = date.today()
+
+            # 存入 DailyReport 时使用计算出的 today (即客户端的今天)
             daily = session.query(DailyReport).filter_by(user_id=self.user_id, report_date=today).first()
             if not daily:
                 daily = DailyReport(user_id=self.user_id, report_date=today, total_words=0)
@@ -289,7 +296,7 @@ class ClientHandler(threading.Thread):
         finally:
             session.close()
 
-    # --- Social: Friends ---
+    # --- Social ---
 
     def handle_search_user(self, request):
         target_uid_or_name = request.get('query')
@@ -316,27 +323,18 @@ class ClientHandler(threading.Thread):
         try:
             if friend_id == self.user_id:
                 return {"type": "response", "status": "fail", "msg": "Cannot add yourself"}
-
-            # 检查是否已经是好友
             exists = session.query(Friend).filter_by(user_id=self.user_id, friend_id=friend_id,
                                                      status='accepted').first()
             if exists:
                 return {"type": "response", "status": "fail", "msg": "Already friends"}
-
-            # 检查是否已经发送过请求
             pending = session.query(Friend).filter_by(user_id=self.user_id, friend_id=friend_id,
                                                       status='pending').first()
             if pending:
                 return {"type": "response", "status": "fail", "msg": "Request already sent"}
-
-            # 创建申请记录 (User -> Friend)
             new_request = Friend(user_id=self.user_id, friend_id=friend_id, status="pending")
             session.add(new_request)
             session.commit()
-
-            # 通知对方有新请求
             self.broadcast_to_users([friend_id], {"type": "refresh_friend_requests"})
-
             return {"type": "response", "status": "success", "msg": "Request sent"}
         finally:
             session.close()
@@ -345,7 +343,6 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         session = db_manager.get_session()
         try:
-            # 查询所有发送给我的请求 (friend_id = me, status = pending)
             reqs = session.query(Friend).filter_by(friend_id=self.user_id, status='pending').all()
             data = []
             for r in reqs:
@@ -364,40 +361,27 @@ class ClientHandler(threading.Thread):
     def handle_respond_friend(self, request):
         if not self.user_id: return None
         request_id = request.get('request_id')
-        action = request.get('action')  # 'accept' or 'reject'
-
+        action = request.get('action')
         session = db_manager.get_session()
         try:
             friend_req = session.query(Friend).get(request_id)
             if not friend_req or friend_req.friend_id != self.user_id:
                 return {"type": "response", "status": "fail", "msg": "Invalid request"}
-
             sender_id = friend_req.user_id
-            print(f"[Friend] User {self.user_id} responding to request {request_id} from {sender_id} with {action}")
-
             if action == 'accept':
                 friend_req.status = 'accepted'
-                # 创建双向关系 (Me -> Sender) 也设为 accepted
-                # 检查反向是否已经存在（防止重复数据）
                 existing_reverse = session.query(Friend).filter_by(user_id=self.user_id, friend_id=sender_id).first()
                 if not existing_reverse:
                     reverse_rel = Friend(user_id=self.user_id, friend_id=sender_id, status='accepted')
                     session.add(reverse_rel)
                 else:
                     existing_reverse.status = 'accepted'
-
-                # 确保双向都被提交
                 session.commit()
-                print(f"[Friend] Committed friendship between {self.user_id} and {sender_id}")
-
-                # 通知双方刷新好友列表
                 self.broadcast_to_users([self.user_id, sender_id], {"type": "refresh_friends"})
-
             else:
                 session.delete(friend_req)
                 session.commit()
                 self.broadcast_to_users([self.user_id], {"type": "refresh_friend_requests"})
-
             return {"type": "response", "status": "success"}
         finally:
             session.close()
@@ -406,7 +390,6 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         session = db_manager.get_session()
         try:
-            # 只获取 accepted 的好友
             friends_rels = session.query(Friend).filter_by(user_id=self.user_id, status='accepted').all()
             friend_list = []
             for rel in friends_rels:
@@ -419,50 +402,36 @@ class ClientHandler(threading.Thread):
                         "nickname": u.nickname,
                         "status": status
                     })
-            print(f"[Friend] User {self.user_id} fetching friends: Found {len(friend_list)}")
             return {"type": "get_friends_response", "data": friend_list}
         finally:
             session.close()
-
-    # --- Social: Groups ---
 
     def handle_create_group(self, request):
         if not self.user_id: return None
         name = request.get('name')
         is_private = request.get('is_private', False)
-
-        # 确保 is_private 是布尔值
         if is_private == "true" or is_private == 1:
             is_private = True
         elif is_private == "false" or is_private == 0:
             is_private = False
-
         session = db_manager.get_session()
         try:
-            # 1. 检查是否已经在其他群
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current:
-                # 返回当前群ID，方便客户端恢复状态
                 return {
                     "type": "create_group_response",
                     "status": "fail",
                     "msg": "You are already in a group.",
                     "current_group_id": current.group_id
                 }
-
             new_group = Group(name=name, owner_id=self.user_id, is_private=is_private)
             session.add(new_group)
             session.flush()
-
             member = GroupMember(group_id=new_group.id, user_id=self.user_id)
             session.add(member)
             session.commit()
-
-            # 【关键修复】创建成功后，如果是非私密房间，广播通知所有大厅用户刷新列表
             if not is_private:
-                print(f"[Group] Broadcasting refresh_groups because {name} was created.")
                 self.broadcast_to_all({"type": "refresh_groups"})
-
             return {"type": "create_group_response", "status": "success", "group_id": new_group.id, "group_name": name}
         finally:
             session.close()
@@ -470,7 +439,6 @@ class ClientHandler(threading.Thread):
     def handle_get_public_groups(self, request):
         session = db_manager.get_session()
         try:
-            # 明确过滤 is_private 为 False 的房间
             groups = session.query(Group).filter_by(is_private=False).order_by(Group.updated_at.desc()).limit(50).all()
             data = []
             for g in groups:
@@ -490,37 +458,27 @@ class ClientHandler(threading.Thread):
         group_id = request.get('group_id')
         session = db_manager.get_session()
         try:
-            # 1. 检查是否已经在群 (排他性)
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current:
                 if current.group_id == group_id:
                     return {"type": "join_group_response", "status": "success", "group_id": group_id}
                 else:
-                    # 返回当前群ID
                     return {
                         "type": "join_group_response",
                         "status": "fail",
                         "msg": "You are already in another group.",
                         "current_group_id": current.group_id
                     }
-
-            # 2. 检查人数
             count = session.query(GroupMember).filter_by(group_id=group_id).count()
             if count >= 10:
                 return {"type": "join_group_response", "status": "fail", "msg": "Group is full (Max 10)"}
-
             new_mem = GroupMember(group_id=group_id, user_id=self.user_id)
             session.add(new_mem)
-
             group = session.query(Group).get(group_id)
-            if group:
-                group.updated_at = datetime.now()
+            if group: group.updated_at = datetime.now()
             session.commit()
-
-            # 广播刷新（因为人数变了）
             if not group.is_private:
                 self.broadcast_to_all({"type": "refresh_groups"})
-
             return {"type": "join_group_response", "status": "success", "group_id": group_id}
         finally:
             session.close()
@@ -531,12 +489,8 @@ class ClientHandler(threading.Thread):
         session = db_manager.get_session()
         try:
             session.query(GroupMember).filter_by(user_id=self.user_id, group_id=group_id).delete()
-            # 如果房间没人了，可以考虑删除房间，这里暂时保留
             session.commit()
-
-            # 广播刷新
             self.broadcast_to_all({"type": "refresh_groups"})
-
             return {"type": "leave_group_response", "status": "success"}
         finally:
             session.close()
@@ -545,23 +499,18 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         group_id = request.get('group_id')
         content = request.get('content')
-
         session = db_manager.get_session()
         try:
             member = session.query(GroupMember).filter_by(group_id=group_id, user_id=self.user_id).first()
             if not member: return
-
             user = session.query(User).get(self.user_id)
             msg = GroupMessage(group_id=group_id, user_id=self.user_id, user_nickname=user.nickname, content=content)
             session.add(msg)
-
             group = session.query(Group).get(group_id)
             group.updated_at = datetime.now()
             session.commit()
-
             members = session.query(GroupMember).filter_by(group_id=group_id).all()
             member_ids = [m.user_id for m in members]
-
             push_msg = {
                 "type": "group_msg_push",
                 "group_id": group_id,
@@ -576,49 +525,39 @@ class ClientHandler(threading.Thread):
     def handle_get_group_detail(self, request):
         group_id = request.get('group_id')
         if not group_id: return None
-
         session = db_manager.get_session()
         try:
             group = session.query(Group).get(group_id)
             if not group: return None
-
             two_days_ago = datetime.now() - timedelta(days=2)
             msgs = session.query(GroupMessage).filter(
                 GroupMessage.group_id == group_id,
                 GroupMessage.timestamp >= two_days_ago
             ).order_by(GroupMessage.timestamp.asc()).all()
-
             chat_history = [{
                 "sender": m.user_nickname,
                 "content": m.content,
                 "time": m.timestamp.strftime("%H:%M")
             } for m in msgs]
-
             members = session.query(GroupMember).filter_by(group_id=group_id).all()
             leaderboard = []
-
             for m in members:
                 user = session.query(User).get(m.user_id)
                 word_count = 0
-
                 if group.sprint_active and group.sprint_start_time:
                     total = session.query(func.sum(DetailRecord.word_increment)).filter(
                         DetailRecord.user_id == m.user_id,
                         DetailRecord.end_time >= group.sprint_start_time
                     ).scalar()
                     word_count = total if total else 0
-
                 is_online = m.user_id in connected_clients
-
                 leaderboard.append({
                     "nickname": user.nickname,
                     "word_count": word_count,
                     "is_online": is_online,
                     "reached_target": (word_count >= group.sprint_target_words) if group.sprint_active else False
                 })
-
             leaderboard.sort(key=lambda x: x['word_count'], reverse=True)
-
             return {
                 "type": "group_detail_response",
                 "group_id": group_id,
@@ -637,13 +576,11 @@ class ClientHandler(threading.Thread):
         group_id = request.get('group_id')
         action = request.get('action')
         target = request.get('target', 0)
-
         session = db_manager.get_session()
         try:
             group = session.query(Group).get(group_id)
             if group.owner_id != self.user_id:
                 return {"type": "response", "msg": "Only owner can control sprint"}
-
             if action == 'start':
                 group.sprint_active = True
                 group.sprint_start_time = datetime.now()
@@ -652,12 +589,9 @@ class ClientHandler(threading.Thread):
             else:
                 group.sprint_active = False
                 msg_content = f"🛑 拼字结束。"
-
             session.commit()
-
             members = session.query(GroupMember).filter_by(group_id=group_id).all()
             member_ids = [m.user_id for m in members]
-
             push_msg = {
                 "type": "group_msg_push",
                 "group_id": group_id,
@@ -666,9 +600,7 @@ class ClientHandler(threading.Thread):
                 "time": datetime.now().strftime("%H:%M")
             }
             self.broadcast_to_users(member_ids, push_msg)
-
             self.broadcast_to_users(member_ids, {"type": "sprint_status_push", "group_id": group_id})
-
             return {"type": "response", "status": "success"}
         finally:
             session.close()
