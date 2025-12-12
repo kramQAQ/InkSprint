@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
 from .float_group_window import FloatGroupWindow
+from .localization import STRINGS  # 导入汉化配置
 
 
 class SocialPage(QWidget):
@@ -80,8 +81,8 @@ class SocialPage(QWidget):
         self.btn_group = QButtonGroup(self)
 
         # 交换顺序：先 Groups 后 Friends
-        self.btn_tab_groups = QPushButton("💬 Groups")
-        self.btn_tab_friends = QPushButton("👥 Friends")
+        self.btn_tab_groups = QPushButton(STRINGS["tab_groups"])
+        self.btn_tab_friends = QPushButton(STRINGS["tab_friends"])
 
         for idx, btn in enumerate([self.btn_tab_groups, self.btn_tab_friends]):
             btn.setCheckable(True)
@@ -131,14 +132,14 @@ class SocialPage(QWidget):
         # Top Bar
         top = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search User ID or Name")
-        btn_search = QPushButton("Add Friend")
+        self.search_input.setPlaceholderText(STRINGS["search_placeholder"])
+        btn_search = QPushButton(STRINGS["btn_add_friend"])
         btn_search.clicked.connect(self.search_and_add_friend)
 
-        self.btn_friend_requests = QPushButton("Friend Requests")
+        self.btn_friend_requests = QPushButton(STRINGS["btn_friend_reqs"])
         self.btn_friend_requests.clicked.connect(self.show_friend_requests)
 
-        btn_refresh = QPushButton("Refresh List")
+        btn_refresh = QPushButton(STRINGS["btn_refresh_list"])
         btn_refresh.clicked.connect(self.load_friends)
 
         top.addWidget(self.search_input)
@@ -165,9 +166,9 @@ class SocialPage(QWidget):
         lobby_layout = QVBoxLayout(self.lobby_widget)
 
         l_top = QHBoxLayout()
-        btn_create = QPushButton("➕ Create Group")
+        btn_create = QPushButton(STRINGS["btn_create_group"])
         btn_create.clicked.connect(self.show_create_group_dialog)
-        btn_refresh_g = QPushButton("🔄 Refresh Lobby")
+        btn_refresh_g = QPushButton(STRINGS["btn_refresh_lobby"])
         btn_refresh_g.clicked.connect(self.refresh_group_list)
 
         l_top.addWidget(btn_create)
@@ -188,13 +189,13 @@ class SocialPage(QWidget):
         self.lbl_room_name = QLabel("Room Name")
         self.lbl_room_name.setStyleSheet("font-size: 18px; font-weight: bold;")
 
-        btn_leave = QPushButton("Leave Room")
+        btn_leave = QPushButton(STRINGS["btn_leave_room"])
         btn_leave.setStyleSheet("background-color: #ff6b6b; color: white; font-weight: bold;")
         btn_leave.clicked.connect(self.leave_room)
 
-        btn_float_chat = QPushButton("Float Chat")
+        btn_float_chat = QPushButton(STRINGS["btn_float_chat"])
         btn_float_chat.clicked.connect(lambda: self.toggle_float_window("chat"))
-        btn_float_rank = QPushButton("Float Rank")
+        btn_float_rank = QPushButton(STRINGS["btn_float_rank"])
         btn_float_rank.clicked.connect(lambda: self.toggle_float_window("rank"))
 
         r_header.addWidget(self.lbl_room_name)
@@ -212,9 +213,9 @@ class SocialPage(QWidget):
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("Type message...")
+        self.chat_input.setPlaceholderText(STRINGS["chat_placeholder"])
         self.chat_input.returnPressed.connect(self.send_chat_message)
-        btn_send = QPushButton("Send")
+        btn_send = QPushButton(STRINGS["btn_send"])
         btn_send.clicked.connect(self.send_chat_message)
 
         input_h = QHBoxLayout()
@@ -229,13 +230,13 @@ class SocialPage(QWidget):
 
         self.sprint_ctrl_frame = QFrame()
         sprint_l = QVBoxLayout(self.sprint_ctrl_frame)
-        self.btn_start_sprint = QPushButton("Start Sprint")
+        self.btn_start_sprint = QPushButton(STRINGS["btn_start_sprint"])
         self.btn_start_sprint.clicked.connect(self.start_sprint_dialog)
-        self.btn_stop_sprint = QPushButton("Stop Sprint")
+        self.btn_stop_sprint = QPushButton(STRINGS["btn_stop_sprint"])
         self.btn_stop_sprint.clicked.connect(self.stop_sprint)
-        self.lbl_sprint_status = QLabel("Sprint: Inactive")
+        self.lbl_sprint_status = QLabel(STRINGS["status_sprint_inactive"])
 
-        sprint_l.addWidget(QLabel("Owner Controls"))
+        sprint_l.addWidget(QLabel(STRINGS["lbl_owner_ctrl"]))
         sprint_l.addWidget(self.lbl_sprint_status)
         sprint_l.addWidget(self.btn_start_sprint)
         sprint_l.addWidget(self.btn_stop_sprint)
@@ -243,7 +244,7 @@ class SocialPage(QWidget):
 
         self.rank_list = QListWidget()
 
-        rank_v.addWidget(QLabel("🏆 Leaderboard"))
+        rank_v.addWidget(QLabel(STRINGS["lbl_leaderboard"]))
         rank_v.addWidget(self.rank_list)
         rank_v.addWidget(self.sprint_ctrl_frame)
 
@@ -280,13 +281,13 @@ class SocialPage(QWidget):
 
     def open_request_dialog(self, requests):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Friend Requests")
+        dlg.setWindowTitle(STRINGS["dialog_friend_req_title"])
         dlg.resize(400, 300)
         vbox = QVBoxLayout(dlg)
 
         lst = QListWidget()
         if not requests:
-            lst.addItem("No pending requests.")
+            lst.addItem(STRINGS["item_no_reqs"])
 
         for r in requests:
             text = f"{r['nickname']} ({r['username']})"
@@ -294,14 +295,15 @@ class SocialPage(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, r['request_id'])
             lst.addItem(item)
 
-        vbox.addWidget(QLabel("Double click to respond:"))
+        vbox.addWidget(QLabel(STRINGS["lbl_dbl_click"]))
         vbox.addWidget(lst)
 
         def on_item_dbl_click(item):
             req_id = item.data(Qt.ItemDataRole.UserRole)
             if not req_id: return
 
-            reply = QMessageBox.question(dlg, "Respond", f"Accept request from {item.text()}?",
+            reply = QMessageBox.question(dlg, STRINGS["msg_req_confirm_title"],
+                                         STRINGS["msg_req_confirm_fmt"].format(item.text()),
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
 
             action = None
@@ -324,9 +326,9 @@ class SocialPage(QWidget):
             self.network.send_request({"type": "get_public_groups"})
 
     def show_create_group_dialog(self):
-        name, ok = QInputDialog.getText(self, "Create Group", "Group Name:")
+        name, ok = QInputDialog.getText(self, STRINGS["dialog_create_group_title"], STRINGS["dialog_group_name_label"])
         if ok and name:
-            reply = QMessageBox.question(self, "Private?", "Make this group private?",
+            reply = QMessageBox.question(self, STRINGS["dialog_private_title"], STRINGS["dialog_private_msg"],
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             is_private = (reply == QMessageBox.StandardButton.Yes)
             self.network.send_request({
@@ -345,7 +347,7 @@ class SocialPage(QWidget):
         self.current_group_id = group_id
         self.is_group_owner = (owner_id == self.my_user_id)
         if self.lbl_room_name:
-            self.lbl_room_name.setText(f"Room: {name}")
+            self.lbl_room_name.setText(STRINGS["lbl_room_name_fmt"].format(name))
         self.group_stack.setCurrentIndex(1)
 
         if self.is_group_owner:
@@ -392,7 +394,8 @@ class SocialPage(QWidget):
     # --- Logic: Sprint ---
 
     def start_sprint_dialog(self):
-        target, ok = QInputDialog.getInt(self, "Start Sprint", "Target Words:", 500, 10, 100000)
+        target, ok = QInputDialog.getInt(self, STRINGS["dialog_sprint_title"], STRINGS["dialog_sprint_target"], 500, 10,
+                                         100000)
         if ok:
             self.network.send_request({
                 "type": "sprint_control",
@@ -426,12 +429,13 @@ class SocialPage(QWidget):
         if dtype == "search_user_response":
             if data['status'] == 'success':
                 u = data['data']
-                reply = QMessageBox.question(self, "Found User", f"Add {u['nickname']} ({u['username']}) as friend?",
+                reply = QMessageBox.question(self, STRINGS["msg_found_user_title"],
+                                             STRINGS["msg_add_confirm_fmt"].format(u['nickname'], u['username']),
                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                 if reply == QMessageBox.StandardButton.Yes:
                     self.network.send_request({"type": "add_friend", "friend_id": u['id']})
             else:
-                QMessageBox.warning(self, "Not Found", "User not found.")
+                QMessageBox.warning(self, STRINGS["msg_not_found_title"], STRINGS["msg_user_not_found"])
 
         elif dtype == "refresh_friends":
             self.load_friends()
@@ -439,7 +443,7 @@ class SocialPage(QWidget):
         elif dtype == "refresh_friend_requests":
             if self.btn_friend_requests:
                 self.btn_friend_requests.setStyleSheet("background-color: #ff6b6b; color: white; font-weight: bold;")
-            QMessageBox.information(self, "Notification", "You have a new friend request!")
+            QMessageBox.information(self, STRINGS["warn_title"], STRINGS["msg_new_req"])
 
         elif dtype == "friend_requests_response":
             self.open_request_dialog(data.get("data", []))
@@ -477,7 +481,7 @@ class SocialPage(QWidget):
         elif dtype == "group_detail_response":
             if self.current_group_id != data['group_id']: return
 
-            self.lbl_room_name.setText(f"Room: {data['name']}")
+            self.lbl_room_name.setText(STRINGS["lbl_room_name_fmt"].format(data['name']))
             self.is_group_owner = (data['owner_id'] == self.my_user_id)
             if self.is_group_owner:
                 self.sprint_ctrl_frame.show()
@@ -485,10 +489,10 @@ class SocialPage(QWidget):
                 self.sprint_ctrl_frame.hide()
 
             if data['sprint_active']:
-                self.lbl_sprint_status.setText(f"🔥 Sprint: {data['sprint_target']} words")
+                self.lbl_sprint_status.setText(STRINGS["status_sprint_active_fmt"].format(data['sprint_target']))
                 self.lbl_sprint_status.setStyleSheet("color: orange; font-weight: bold;")
             else:
-                self.lbl_sprint_status.setText("Sprint: Inactive")
+                self.lbl_sprint_status.setText(STRINGS["status_sprint_inactive"])
                 self.lbl_sprint_status.setStyleSheet("color: gray;")
 
             html = ""
@@ -539,6 +543,7 @@ class SocialPage(QWidget):
     def _handle_group_error(self, data):
         if 'current_group_id' in data:
             gid = data['current_group_id']
+            # 这里是自动跳转逻辑，弹窗文案在msg_recover_room中定义备用
             self.enter_room_view(gid, "Restoring Room...", 0)
         else:
-            QMessageBox.warning(self, "Failed", data.get('msg', 'Unknown error'))
+            QMessageBox.warning(self, STRINGS["msg_failed"], data.get('msg', STRINGS["msg_unknown_err"]))

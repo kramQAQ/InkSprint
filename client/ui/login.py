@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QLabel, QLineEdit,
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIntValidator
 from .theme import ThemeManager
+from .localization import STRINGS  # 导入汉化配置
 
 
 class LoginWindow(QWidget):
@@ -17,7 +18,7 @@ class LoginWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("InkSprint Auth")
+        self.setWindowTitle(STRINGS["window_title_auth"])
         self.resize(380, 560)
 
         self.is_night = False
@@ -105,15 +106,15 @@ class LoginWindow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.input_login_user = QLineEdit()
-        self.input_login_user.setPlaceholderText("Username")
+        self.input_login_user.setPlaceholderText(STRINGS["placeholder_user"])
         self.input_login_user.setFixedHeight(45)
 
         self.input_login_pwd = QLineEdit()
-        self.input_login_pwd.setPlaceholderText("Password")
+        self.input_login_pwd.setPlaceholderText(STRINGS["placeholder_pwd"])
         self.input_login_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_login_pwd.setFixedHeight(45)
 
-        btn_login = QPushButton("LOGIN")
+        btn_login = QPushButton(STRINGS["login_btn"])
         btn_login.setFixedHeight(50)
         btn_login.setObjectName("BtnPrimary")
         btn_login.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -121,11 +122,11 @@ class LoginWindow(QWidget):
 
         # 底部链接
         links_layout = QHBoxLayout()
-        btn_to_reg = QPushButton("Create Account")
+        btn_to_reg = QPushButton(STRINGS["create_account_link"])
         btn_to_reg.setObjectName("BtnLink")
         btn_to_reg.clicked.connect(lambda: self.switch_page(1))
 
-        btn_to_forgot = QPushButton("Forgot Password?")
+        btn_to_forgot = QPushButton(STRINGS["forgot_password_link"])
         btn_to_forgot.setObjectName("BtnLink")
         btn_to_forgot.clicked.connect(lambda: self.switch_page(2))
 
@@ -146,30 +147,30 @@ class LoginWindow(QWidget):
         layout.setSpacing(15)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        lbl = QLabel("Create Account")
+        lbl = QLabel(STRINGS["register_header"])
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setObjectName("PageHeader")
         layout.addWidget(lbl)
 
         self.input_reg_user = QLineEdit()
-        self.input_reg_user.setPlaceholderText("Username *")
+        self.input_reg_user.setPlaceholderText(STRINGS["placeholder_user_req"])
         self.input_reg_user.setFixedHeight(45)
 
         self.input_reg_pwd = QLineEdit()
-        self.input_reg_pwd.setPlaceholderText("Password *")
+        self.input_reg_pwd.setPlaceholderText(STRINGS["placeholder_pwd_req"])
         self.input_reg_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_reg_pwd.setFixedHeight(45)
 
         self.input_reg_email = QLineEdit()
-        self.input_reg_email.setPlaceholderText("Email (Optional for recovery)")
+        self.input_reg_email.setPlaceholderText(STRINGS["placeholder_email"])
         self.input_reg_email.setFixedHeight(45)
 
-        btn_reg = QPushButton("REGISTER")
+        btn_reg = QPushButton(STRINGS["register_btn"])
         btn_reg.setFixedHeight(50)
         btn_reg.setObjectName("BtnPrimary")
         btn_reg.clicked.connect(self.on_register_clicked)
 
-        btn_back = QPushButton("← Back to Login")
+        btn_back = QPushButton(STRINGS["back_login_link"])
         btn_back.setObjectName("BtnLink")
         btn_back.clicked.connect(lambda: self.switch_page(0))
 
@@ -186,22 +187,22 @@ class LoginWindow(QWidget):
         layout.setSpacing(12)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        lbl = QLabel("Reset Password")
+        lbl = QLabel(STRINGS["reset_header"])
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setObjectName("PageHeader")
         layout.addWidget(lbl)
 
         self.input_reset_user = QLineEdit()
-        self.input_reset_user.setPlaceholderText("Enter your Username")
+        self.input_reset_user.setPlaceholderText(STRINGS["placeholder_user"])
         self.input_reset_user.setFixedHeight(40)
 
         # 发送验证码区
         code_layout = QHBoxLayout()
         self.input_reset_code = QLineEdit()
-        self.input_reset_code.setPlaceholderText("Verification Code")
+        self.input_reset_code.setPlaceholderText(STRINGS["placeholder_code"])
         self.input_reset_code.setFixedHeight(40)
 
-        self.btn_send_code = QPushButton("Send Code")
+        self.btn_send_code = QPushButton(STRINGS["send_code_btn"])
         self.btn_send_code.setFixedHeight(40)
         self.btn_send_code.setFixedWidth(100)
         self.btn_send_code.setObjectName("BtnSecondary")
@@ -211,16 +212,16 @@ class LoginWindow(QWidget):
         code_layout.addWidget(self.btn_send_code)
 
         self.input_new_pwd = QLineEdit()
-        self.input_new_pwd.setPlaceholderText("New Password")
+        self.input_new_pwd.setPlaceholderText(STRINGS["placeholder_new_pwd"])
         self.input_new_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_new_pwd.setFixedHeight(40)
 
-        btn_reset = QPushButton("RESET PASSWORD")
+        btn_reset = QPushButton(STRINGS["reset_btn"])
         btn_reset.setFixedHeight(45)
         btn_reset.setObjectName("BtnPrimary")
         btn_reset.clicked.connect(self.on_reset_clicked)
 
-        btn_back = QPushButton("← Back to Login")
+        btn_back = QPushButton(STRINGS["back_login_link"])
         btn_back.setObjectName("BtnLink")
         btn_back.clicked.connect(lambda: self.switch_page(0))
 
@@ -243,7 +244,7 @@ class LoginWindow(QWidget):
         if u and p:
             self.login_signal.emit(u, p)
         else:
-            self.show_error("Please enter username and password")
+            self.show_error(STRINGS["warn_enter_all"])
 
     def on_register_clicked(self):
         u = self.input_reg_user.text().strip()
@@ -252,21 +253,20 @@ class LoginWindow(QWidget):
         if u and p:
             self.register_signal.emit(u, p, e)
         else:
-            self.show_error("Username and Password are required")
+            self.show_error(STRINGS["warn_user_pwd_req"])
 
     def on_send_code_clicked(self):
         u = self.input_reset_user.text().strip()
         if not u:
-            self.show_error("Please enter username first")
+            self.show_error(STRINGS["warn_enter_user_first"])
             return
         self.send_code_signal.emit(u)
-        # 简单倒计时视觉反馈
         self.btn_send_code.setEnabled(False)
-        self.btn_send_code.setText("Sent..")
+        self.btn_send_code.setText(STRINGS["send_code_btn_sent"])
 
     def reset_send_btn(self):
         self.btn_send_code.setEnabled(True)
-        self.btn_send_code.setText("Send Code")
+        self.btn_send_code.setText(STRINGS["send_code_btn"])
 
     def on_reset_clicked(self):
         u = self.input_reset_user.text().strip()
@@ -275,10 +275,10 @@ class LoginWindow(QWidget):
         if u and c and np:
             self.reset_pwd_signal.emit(u, c, np)
         else:
-            self.show_error("All fields are required")
+            self.show_error(STRINGS["warn_fields_req"])
 
     def show_error(self, msg):
-        QMessageBox.warning(self, "Warning", msg)
+        QMessageBox.warning(self, STRINGS["warn_title"], msg)
 
     # --- 主题与样式 ---
 
@@ -293,7 +293,6 @@ class LoginWindow(QWidget):
         t = self.current_theme
         self.shadow_effect.setColor(Qt.GlobalColor.black if t["name"] == "dark" else Qt.GlobalColor.gray)
 
-        # 【修改】Light 模式下 Close 按钮颜色改成黑色 (#000000)
         close_btn_color = "#E4E4E7" if t["name"] == "dark" else "#000000"
 
         style = f"""
@@ -316,7 +315,6 @@ class LoginWindow(QWidget):
 
             QPushButton {{ border: none; font-size: 14px; background: transparent; }}
 
-            /* 明确设置 Close 按钮颜色 */
             QPushButton[text="×"] {{ color: {close_btn_color}; font-size: 20px; }}
 
             QPushButton#BtnPrimary {{ 
@@ -332,7 +330,6 @@ class LoginWindow(QWidget):
             QPushButton#BtnLink {{ color: {t['text_sub']}; }}
             QPushButton#BtnLink:hover {{ color: {t['accent']}; text-decoration: underline; }}
 
-            /* 弹窗样式修复 */
             QMessageBox {{ background-color: {t['card_bg']}; }}
             QMessageBox QLabel {{ color: {t['text_main']}; }}
             QMessageBox QPushButton {{ 

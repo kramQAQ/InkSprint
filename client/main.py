@@ -16,6 +16,7 @@ from ui.main_window import MainWindow
 from ui.float_window import FloatWindow
 from ui.theme import DEFAULT_ACCENT
 from core.network import NetworkManager
+from ui.localization import STRINGS  # 导入汉化接口
 
 
 class InkApplication:
@@ -53,13 +54,14 @@ class InkApplication:
         self.tray_icon = QSystemTrayIcon(self.app)
         tray_menu = QMenu()
 
-        action_show = QAction("Show Dashboard", self.app)
+        # 使用 STRINGS 字典中的键
+        action_show = QAction(STRINGS["tray_show"], self.app)
         action_show.triggered.connect(self.restore_from_float)
 
-        action_float = QAction("Float Mode", self.app)
+        action_float = QAction(STRINGS["tray_float"], self.app)
         action_float.triggered.connect(self.switch_to_float)
 
-        action_quit = QAction("Quit", self.app)
+        action_quit = QAction(STRINGS["tray_quit"], self.app)
         action_quit.triggered.connect(self.app.quit)  # 直接调用 app.quit
 
         tray_menu.addAction(action_show)
@@ -74,12 +76,7 @@ class InkApplication:
         print("-" * 30)
         print("🚀 客户端正在启动...")
         if not self.network.connect_and_handshake():
-            error_msg = (
-                "❌ 无法连接到服务器 \n"
-                "请先运行 server/main.py"
-            )
-            print(error_msg)
-            QMessageBox.critical(None, "连接失败", error_msg)
+            QMessageBox.critical(None, STRINGS["msg_conn_fail_title"], STRINGS["msg_conn_fail_text"])
             return
 
         print("✅ 服务器连接成功")
@@ -145,28 +142,28 @@ class InkApplication:
                 self.login_window.hide()
                 self.init_main_window()
             else:
-                QMessageBox.warning(self.login_window, "Login Failed", msg)
+                QMessageBox.warning(self.login_window, STRINGS["title_login_fail"], msg)
 
         elif msg_type == "register_response":
             if status == "success":
-                QMessageBox.information(self.login_window, "Success", msg)
+                QMessageBox.information(self.login_window, STRINGS["title_reg_success"], msg)
                 self.login_window.switch_page(0)
             else:
-                QMessageBox.warning(self.login_window, "Register Failed", msg)
+                QMessageBox.warning(self.login_window, STRINGS["title_reg_fail"], msg)
 
         elif msg_type == "code_response":
             if status == "success":
-                QMessageBox.information(self.login_window, "Sent", msg)
+                QMessageBox.information(self.login_window, STRINGS["title_sent"], msg)
             else:
                 self.login_window.reset_send_btn()
-                QMessageBox.warning(self.login_window, "Error", msg)
+                QMessageBox.warning(self.login_window, STRINGS["error_title"], msg)
 
         elif msg_type == "reset_response":
             if status == "success":
-                QMessageBox.information(self.login_window, "Success", msg)
+                QMessageBox.information(self.login_window, STRINGS["success_title"], msg)
                 self.login_window.switch_page(0)
             else:
-                QMessageBox.warning(self.login_window, "Reset Failed", msg)
+                QMessageBox.warning(self.login_window, STRINGS["title_reset_fail"], msg)
 
         elif msg_type == "profile_updated":
             print("[App] Profile updated successfully")

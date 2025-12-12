@@ -15,6 +15,8 @@ if client_dir not in sys.path:
     sys.path.insert(0, client_dir)
 
 try:
+    # 引入本地化配置
+    from .localization import STRINGS
     from .theme import ThemeManager, DEFAULT_ACCENT
     from .float_window import FloatWindow
     from .analytics import AnalyticsPage
@@ -33,7 +35,8 @@ class MainWindow(QWidget):
 
     def __init__(self, is_night=False, network_manager=None):
         super().__init__()
-        self.setWindowTitle("InkSprint Dashboard")
+        # 【修改】使用配置的标题
+        self.setWindowTitle(STRINGS["window_title_dash"])
         self.resize(1100, 720)
         self.network = network_manager
 
@@ -43,12 +46,12 @@ class MainWindow(QWidget):
 
         # 数据状态
         self.user_data = {"nickname": "Guest", "username": "guest", "avatar": None, "email": ""}
-        self.today_base_count = 0  # 服务器获取的今日初始字数
-        self.session_increment = 0  # 本次运行累计总增量
-        self.last_synced_increment = 0  # 上一次同步时的增量 (用于增量同步)
+        self.today_base_count = 0
+        self.session_increment = 0
+        self.last_synced_increment = 0
 
         self.session_start_time = time.time()
-        self.current_report_date = QDate.currentDate()  # 记录当前日期用于跨天检测
+        self.current_report_date = QDate.currentDate()
         self.user_id = 0
 
         # 本地配置路径
@@ -111,7 +114,8 @@ class MainWindow(QWidget):
         self.lbl_avatar.setFixedSize(48, 48)
         self.lbl_avatar.setScaledContents(True)
 
-        self.lbl_app_name = QLabel("InkSprint")
+        # 【修改】APP名称
+        self.lbl_app_name = QLabel(STRINGS["app_name"])
         self.lbl_app_name.setObjectName("SidebarAppName")
 
         user_layout.addWidget(self.lbl_avatar)
@@ -122,7 +126,13 @@ class MainWindow(QWidget):
 
         # 导航按钮
         self.nav_btns = {}
-        nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 1), ("👥  Social", 2), ("⚙️  Settings", 3)]
+        # 【修改】导航栏汉化
+        nav_items = [
+            (f"🏠  {STRINGS['nav_dashboard']}", 0),
+            (f"📊  {STRINGS['nav_analytics']}", 1),
+            (f"👥  {STRINGS['nav_social']}", 2),
+            (f"⚙️  {STRINGS['nav_settings']}", 3)
+        ]
 
         for text, page_idx in nav_items:
             btn = QPushButton(text)
@@ -182,7 +192,8 @@ class MainWindow(QWidget):
 
         header_layout.addSpacing(8)
 
-        btn_text = "🌙 Dark" if not self.is_night else "☀ Light"
+        # 【修改】主题按钮汉化
+        btn_text = STRINGS["theme_dark"] if not self.is_night else STRINGS["theme_light"]
         self.btn_theme_toggle = QPushButton(btn_text)
         self.btn_theme_toggle.setObjectName("ThemeToggle")
         self.btn_theme_toggle.setFixedSize(100, 40)
@@ -192,10 +203,22 @@ class MainWindow(QWidget):
         layout.addLayout(header_layout)
 
         # Cards
+        # 【修改】统计卡片汉化
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(20)
-        self.card_main = self.create_stat_card("Today's Total", "0", "Session: +0", True)
-        self.card_sub = self.create_stat_card("Current Speed", "0", "Words per hour", False)
+        # 这里的 "0" 和 "+0" 初始值也可以用 format，但 0 本身通用
+        self.card_main = self.create_stat_card(
+            STRINGS["stat_today"],
+            "0",
+            STRINGS["stat_session"].format(0),
+            True
+        )
+        self.card_sub = self.create_stat_card(
+            STRINGS["stat_speed"],
+            "0",
+            STRINGS["unit_wph"],
+            False
+        )
         cards_layout.addWidget(self.card_main, 2)
         cards_layout.addWidget(self.card_sub, 1)
         layout.addLayout(cards_layout)
@@ -217,7 +240,8 @@ class MainWindow(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        lbl = QLabel("Settings")
+        # 【修改】标题
+        lbl = QLabel(STRINGS["settings_title"])
         lbl.setObjectName("PageTitle")
         layout.addWidget(lbl)
         layout.addSpacing(30)
@@ -228,23 +252,28 @@ class MainWindow(QWidget):
         form_layout.setContentsMargins(0, 0, 0, 0)
         form_layout.setSpacing(20)
 
-        lbl_profile = QLabel("Profile Settings")
+        # 【修改】Section Header
+        lbl_profile = QLabel(STRINGS["profile_header"])
         lbl_profile.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
         form_layout.addRow(lbl_profile)
 
         self.lbl_id_display = QLabel("Loading...")
         self.lbl_id_display.setStyleSheet("color: #666; font-family: monospace;")
-        form_layout.addRow("User ID:", self.lbl_id_display)
+        # 【修改】Form Label
+        form_layout.addRow(STRINGS["lbl_uid"], self.lbl_id_display)
 
         self.edit_nickname = QLineEdit()
-        self.edit_nickname.setPlaceholderText("Display name")
-        form_layout.addRow("Nickname:", self.edit_nickname)
+        # 【修改】Placeholder
+        self.edit_nickname.setPlaceholderText(STRINGS["placeholder_nick"])
+        form_layout.addRow(STRINGS["lbl_nick"], self.edit_nickname)
 
         self.edit_email = QLineEdit()
-        self.edit_email.setPlaceholderText("Bind email")
-        form_layout.addRow("Email:", self.edit_email)
+        # 【修改】Placeholder
+        self.edit_email.setPlaceholderText(STRINGS["placeholder_bind_email"])
+        form_layout.addRow(STRINGS["lbl_email"], self.edit_email)
 
-        self.btn_avatar_pick = QPushButton("Change Avatar")
+        # 【修改】Button Text
+        self.btn_avatar_pick = QPushButton(STRINGS["btn_change_avatar"])
         self.btn_avatar_pick.setFixedSize(120, 35)
         self.btn_avatar_pick.clicked.connect(self.open_avatar_picker)
         self.lbl_avatar_preview = QLabel()
@@ -255,23 +284,25 @@ class MainWindow(QWidget):
         av_layout.addWidget(self.lbl_avatar_preview)
         av_layout.addWidget(self.btn_avatar_pick)
         av_layout.addStretch()
-        form_layout.addRow("Avatar:", av_layout)
+        form_layout.addRow(STRINGS["lbl_avatar"], av_layout)
 
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #ddd;")
         form_layout.addRow(line)
 
-        lbl_theme = QLabel("Appearance")
+        # 【修改】Section Header
+        lbl_theme = QLabel(STRINGS["appearance_header"])
         lbl_theme.setStyleSheet("font-weight: bold; font-size: 16px; color: #888;")
         form_layout.addRow(lbl_theme)
 
         self.btn_color_pick = QPushButton(self.current_accent)
         self.btn_color_pick.setFixedSize(120, 35)
         self.btn_color_pick.clicked.connect(self.open_color_picker)
-        form_layout.addRow("Accent Color:", self.btn_color_pick)
+        form_layout.addRow(STRINGS["lbl_accent"], self.btn_color_pick)
 
-        self.btn_save_settings = QPushButton("Save Changes")
+        # 【修改】Button Text
+        self.btn_save_settings = QPushButton(STRINGS["btn_save"])
         self.btn_save_settings.setFixedSize(150, 45)
         self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save_settings.setObjectName("SaveButton")
@@ -299,10 +330,10 @@ class MainWindow(QWidget):
                     if path:
                         is_web = (stype == 'web')
                         self.monitor_thread.add_source(path, is_web)
-                        # 【修改】加载时不显示图标
                         self.list_sources.addItem(f"{path}")
 
-                self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
+                # 【修改】标题格式化
+                self.lbl_list_title.setText(STRINGS["sources_title"].format(self.list_sources.count()))
                 print(f"[Config] Loaded {len(sources)} sources from local config.")
         except Exception as e:
             print(f"[Config Error] Failed to load local sources: {e}")
@@ -311,9 +342,7 @@ class MainWindow(QWidget):
         sources = []
         for i in range(self.list_sources.count()):
             item_text = self.list_sources.item(i).text()
-            # 【修改】保存时无需分割图标
             path = item_text.strip()
-            # 简单判断 URL 还是 路径
             stype = 'web' if (path.startswith('http://') or path.startswith('https://')) else 'local'
             sources.append({"path": path, "type": stype})
 
@@ -366,18 +395,16 @@ class MainWindow(QWidget):
     def update_dashboard_stats(self, total_in_monitor, increment, wph):
         self.session_increment = increment
 
-        # 【修改】跨天检测：如果日期变更，重置昨日的基础字数
         now_date = QDate.currentDate()
         if now_date != self.current_report_date:
             print("[DateChange] New day detected! Resetting daily base.")
             self.today_base_count = 0
             self.current_report_date = now_date
-            # 注意：session_increment 是本次运行的累计，无法轻易清零，
-            # 但重置 base 为 0 后，显示的就是 session_increment，符合“新的一天”逻辑（虽然包含了跨夜前的一部分）
 
         daily_total = self.today_base_count + increment
         self.lbl_main_count.setText(str(daily_total))
-        self.card_main.findChild(QLabel, "CardSub").setText(f"Session: +{increment}")
+        # 【修改】使用 format 更新副标签
+        self.card_main.findChild(QLabel, "CardSub").setText(STRINGS["stat_session"].format(increment))
         self.lbl_speed.setText(str(wph))
 
     def on_nav_clicked(self, page_idx, btn):
@@ -385,7 +412,6 @@ class MainWindow(QWidget):
         btn.setChecked(True)
         self.content_stack.setCurrentIndex(page_idx)
 
-        # 切换到分析页时，触发增量同步和加载
         if page_idx == 1:
             self.sync_data_incrementally()
             self.page_analytics.load_data()
@@ -395,22 +421,15 @@ class MainWindow(QWidget):
             self.page_social.refresh_group_list()
 
     def sync_data_incrementally(self):
-        """增量同步数据到服务器，确保热力图实时更新"""
         if not self.network: return
 
-        # 计算自上次同步后新增的字数
         delta = self.session_increment - self.last_synced_increment
-
-        duration = int(time.time() - self.session_start_time)  # 简化处理，每次发总时长不影响增量
-        # 优化：时长也用增量会更准，但服务器是记录一条条记录，所以每次 duration 可以传 0 或者一段
-        # 这里为了简单，我们只在有字数变化时同步
-
         if delta > 0:
             print(f"[Sync] Sending incremental sync: +{delta}")
             self.network.send_request({
                 "type": "sync_data",
                 "increment": delta,
-                "duration": 0  # 暂不精确统计分段时长
+                "duration": 0
             })
             self.last_synced_increment = self.session_increment
 
@@ -430,7 +449,6 @@ class MainWindow(QWidget):
     def closeEvent(self, event):
         self.save_local_sources()
         if self.network:
-            # 最后的同步
             self.sync_data_incrementally()
 
         import time as t
@@ -440,7 +458,8 @@ class MainWindow(QWidget):
     # --- 其他辅助函数 ---
 
     def open_avatar_picker(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Avatar", "", "Images (*.png *.jpg *.jpeg)")
+        # 【修改】对话框标题
+        file_path, _ = QFileDialog.getOpenFileName(self, STRINGS["dialog_select_avatar"], "", STRINGS["dialog_img_files"])
         if file_path:
             pixmap = QPixmap(file_path)
             scaled = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio,
@@ -456,7 +475,8 @@ class MainWindow(QWidget):
         new_nickname = self.edit_nickname.text().strip()
         new_email = self.edit_email.text().strip()
         if not new_nickname:
-            QMessageBox.warning(self, "Warning", "Nickname cannot be empty!")
+            # 【修改】警告框
+            QMessageBox.warning(self, STRINGS["warn_title"], STRINGS["msg_nick_empty"])
             return
         payload = {"type": "update_profile", "nickname": new_nickname, "email": new_email}
         if self.pending_avatar_b64: payload["avatar_data"] = self.pending_avatar_b64
@@ -464,7 +484,8 @@ class MainWindow(QWidget):
             self.network.send_request(payload)
             self.lbl_title.setText(f"Hi, {new_nickname}")
             if self.pending_avatar_b64: self.lbl_avatar.setPixmap(self.lbl_avatar_preview.pixmap())
-            QMessageBox.information(self, "Sent", "Profile update request sent.")
+            # 【修改】信息框
+            QMessageBox.information(self, STRINGS["title_sent"], STRINGS["msg_profile_sent"])
 
     def open_color_picker(self):
         color = QColorDialog.getColor(QColor(self.current_accent), self, "Select Accent Color")
@@ -479,39 +500,44 @@ class MainWindow(QWidget):
     def toggle_theme_mode(self):
         self.is_night = not self.is_night
         self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
-        self.btn_theme_toggle.setText("☀ Light" if self.is_night else "🌙 Dark")
+        # 【修改】主题文字切换
+        self.btn_theme_toggle.setText(STRINGS["theme_light"] if self.is_night else STRINGS["theme_dark"])
         self.apply_theme()
 
     def add_local_source(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Doc", "", "Documents (*.docx *.txt)")
+        # 【修改】对话框
+        file_path, _ = QFileDialog.getOpenFileName(self, STRINGS["dialog_select_doc"], "", STRINGS["dialog_doc_files"])
         if file_path:
             self._perform_add(file_path, False)
             self.save_local_sources()
 
     def add_web_source(self):
-        text, ok = QInputDialog.getText(self, "Add Web", "URL:")
+        # 【修改】对话框
+        text, ok = QInputDialog.getText(self, STRINGS["dialog_add_web_title"], STRINGS["dialog_add_web_label"])
         if ok and text:
             self._perform_add(text.strip(), True)
             self.save_local_sources()
 
     def _perform_add(self, path, is_web):
         if self.monitor_thread.add_source(path, is_web):
-            # 【修改】列表不加图标
             self.list_sources.addItem(f"{path}")
-            self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
+            # 【修改】更新数量
+            self.lbl_list_title.setText(STRINGS["sources_title"].format(self.list_sources.count()))
 
     def show_list_context_menu(self, pos):
         item = self.list_sources.itemAt(pos)
         if item:
             menu = QMenu()
-            menu.addAction("🗑️ Remove").triggered.connect(lambda: self.delete_source(item))
+            # 【修改】右键菜单
+            menu.addAction(f"🗑️ {STRINGS['menu_remove']}").triggered.connect(lambda: self.delete_source(item))
             menu.exec(self.list_sources.mapToGlobal(pos))
 
     def delete_source(self, item):
-        path = item.text()  # 【修改】直接获取路径，没有图标分割
+        path = item.text()
         self.monitor_thread.remove_source(path)
         self.list_sources.takeItem(self.list_sources.row(item))
-        self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
+        # 【修改】更新数量
+        self.lbl_list_title.setText(STRINGS["sources_title"].format(self.list_sources.count()))
         self.save_local_sources()
 
     def on_pomo_time_edited(self):
@@ -633,7 +659,8 @@ class MainWindow(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
-        self.lbl_list_title = QLabel("Active Sources (0/10)")
+        # 【修改】监控源标题汉化
+        self.lbl_list_title = QLabel(STRINGS["sources_title"].format("0"))
         self.lbl_list_title.setObjectName("ListTitle")
         layout.addWidget(self.lbl_list_title)
         self.list_sources = QListWidget()
@@ -643,11 +670,11 @@ class MainWindow(QWidget):
         self.list_sources.customContextMenuRequested.connect(self.show_list_context_menu)
         layout.addWidget(self.list_sources)
         btns_layout = QHBoxLayout()
-        self.btn_local = QPushButton("➕ Local")
+        # 【修改】按钮汉化
+        self.btn_local = QPushButton(STRINGS["btn_local"])
         self.btn_local.setObjectName("ActionBtnLocal")
         self.btn_local.clicked.connect(self.add_local_source)
-        # 【修改】改为 Online
-        self.btn_web = QPushButton("🌐 Online")
+        self.btn_web = QPushButton(STRINGS["btn_online"])
         self.btn_web.setObjectName("ActionBtnWeb")
         self.btn_web.clicked.connect(self.add_web_source)
         for b in [self.btn_local, self.btn_web]:
@@ -664,9 +691,11 @@ class MainWindow(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 20, 20, 20)
         top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Focus Timer"))
+        # 【修改】番茄钟标题
+        top_bar.addWidget(QLabel(STRINGS["timer_title"]))
         top_bar.addStretch()
-        self.chk_pomo_float = QCheckBox("Float")
+        # 【修改】Checkbox
+        self.chk_pomo_float = QCheckBox(STRINGS["check_float"])
         self.chk_pomo_float.setObjectName("PomoFloatCheck")
         self.chk_pomo_float.toggled.connect(self.pomo_float_toggle_signal.emit)
         top_bar.addWidget(self.chk_pomo_float)

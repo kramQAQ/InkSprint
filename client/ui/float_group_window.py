@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QListWidget, QLabe
                              QGraphicsDropShadowEffect, QListWidgetItem, QFrame, QLineEdit)
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
+from .localization import STRINGS # 导入汉化配置
 
 
 class FloatGroupWindow(QWidget):
@@ -38,7 +39,7 @@ class FloatGroupWindow(QWidget):
         con_layout.setContentsMargins(10, 10, 10, 10)
 
         # Header
-        self.lbl_title = QLabel("Group Chat")
+        self.lbl_title = QLabel(STRINGS["float_group_chat"])
         self.lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_title.setStyleSheet("font-size: 14px; margin-bottom: 5px;")
         con_layout.addWidget(self.lbl_title)
@@ -54,7 +55,7 @@ class FloatGroupWindow(QWidget):
 
         # Input Field (始终显示在底部，或者仅在聊天模式显示)
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type message...")
+        self.input_field.setPlaceholderText(STRINGS["chat_placeholder"])
         self.input_field.returnPressed.connect(self.on_send_msg)
         con_layout.addWidget(self.input_field)
 
@@ -68,14 +69,14 @@ class FloatGroupWindow(QWidget):
         self.container.setGraphicsEffect(shadow)
 
     def show_chat(self):
-        self.lbl_title.setText("💬 Group Chat")
+        self.lbl_title.setText(STRINGS["float_group_chat"])
         self.chat_view.show()
         self.rank_view.hide()
         self.input_field.show()  # 聊天模式显示输入框
         self.show()
 
     def show_rank(self):
-        self.lbl_title.setText("🏆 Leaderboard")
+        self.lbl_title.setText(STRINGS["float_leaderboard"])
         self.chat_view.hide()
         self.rank_view.show()
         self.input_field.hide()  # 排行榜模式隐藏输入框，保持界面整洁

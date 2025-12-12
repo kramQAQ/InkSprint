@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGraphicsDropShadowEffect, QLayout)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
+from .localization import STRINGS  # 导入汉化配置
 
 
 class FloatWindow(QWidget):
@@ -47,11 +48,11 @@ class FloatWindow(QWidget):
         data_layout = QVBoxLayout()
         data_layout.setSpacing(2)
 
-        self.lbl_wph = QLabel("0 WPH")
+        self.lbl_wph = QLabel(f"0 {STRINGS['float_wph']}")
         self.lbl_wph.setObjectName("FloatMainText")
         self.lbl_wph.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self.lbl_count = QLabel("+0 words")
+        self.lbl_count = QLabel(f"+0 {STRINGS['float_words']}")
         self.lbl_count.setObjectName("FloatSubText")
         self.lbl_count.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
@@ -125,8 +126,8 @@ class FloatWindow(QWidget):
         self.adjustSize()
 
     def update_data(self, total, increment, wph):
-        self.lbl_wph.setText(f"{wph} WPH")
-        self.lbl_count.setText(f"+{increment} words")
+        self.lbl_wph.setText(f"{wph} {STRINGS['float_wph']}")
+        self.lbl_count.setText(f"+{increment} {STRINGS['float_words']}")
 
     def update_timer(self, time_str):
         self.lbl_timer.setText(time_str)

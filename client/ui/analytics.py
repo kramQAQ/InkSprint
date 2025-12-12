@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
 from PyQt6.QtCore import Qt, QDateTime, QDate
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont
 import datetime
+from .localization import STRINGS # 导入汉化配置
 
 
 class HeatmapWidget(QWidget):
@@ -142,21 +143,21 @@ class AnalyticsPage(QWidget):
         layout.setSpacing(20)
 
         top_bar = QHBoxLayout()
-        lbl_title = QLabel("Activity Analytics")
+        lbl_title = QLabel(STRINGS["analytics_title_header"])
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
         top_bar.addWidget(lbl_title)
         top_bar.addStretch()
 
         self.btn_group = QButtonGroup(self)
-        modes = ["Week", "Month", "Year"]
+        modes = [("Week", STRINGS["btn_week"]), ("Month", STRINGS["btn_month"]), ("Year", STRINGS["btn_year"])]
         self.mode_btns = {}
-        for m in modes:
-            btn = QPushButton(m)
+        for code, label in modes:
+            btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setFixedSize(80, 30)
-            btn.clicked.connect(lambda _, mode=m: self.update_chart_view(mode))
+            btn.clicked.connect(lambda _, mode=code: self.update_chart_view(mode))
             self.btn_group.addButton(btn)
-            self.mode_btns[m] = btn
+            self.mode_btns[code] = btn
             top_bar.addWidget(btn)
 
         self.mode_btns["Week"].setChecked(True)
@@ -166,7 +167,7 @@ class AnalyticsPage(QWidget):
         layout.addWidget(self.chart)
 
         layout.addSpacing(20)
-        lbl_contrib = QLabel("Contribution Graph (Last Year)")
+        lbl_contrib = QLabel(STRINGS["graph_title"])
         lbl_contrib.setStyleSheet("font-size: 16px; font-weight: bold; color: #555;")
         layout.addWidget(lbl_contrib)
 
@@ -175,7 +176,7 @@ class AnalyticsPage(QWidget):
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        self.btn_details = QPushButton("View Recent Details (3 Days)")
+        self.btn_details = QPushButton(STRINGS["btn_view_details"])
         self.btn_details.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_details.setFixedHeight(40)
         self.btn_details.setStyleSheet("""
@@ -238,12 +239,12 @@ class AnalyticsPage(QWidget):
 
     def open_details_dialog(self, records):
         dlg = QDialog(self)
-        dlg.setWindowTitle("Recent Activity Details")
+        dlg.setWindowTitle(STRINGS["dialog_details_title"])
         dlg.resize(500, 400)
         layout = QVBoxLayout(dlg)
         table = QTableWidget()
         table.setColumnCount(3)
-        table.setHorizontalHeaderLabels(["Time", "Words Added", "Duration (s)"])
+        table.setHorizontalHeaderLabels([STRINGS["col_time"], STRINGS["col_added"], STRINGS["col_duration"]])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         table.setRowCount(len(records))
         for i, row in enumerate(records):
