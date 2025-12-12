@@ -400,7 +400,9 @@ class MainWindow(QWidget):
                 "type": "sync_data",
                 "increment": delta,
                 "duration": 0,
-                "timestamp": time.time()  # 发送客户端时间
+                "timestamp": time.time(),  # 发送客户端时间戳
+                # 【新增】明确告诉服务器，这是属于“哪一天”的数据（客户端本地日期）
+                "local_date": self.current_report_date.toString(Qt.DateFormat.ISODate)
             })
             self.last_synced_increment = self.session_increment
 

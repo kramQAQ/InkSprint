@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
                              QSizePolicy, QButtonGroup)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
+from datetime import datetime  # 【新增】用于时间格式化
 from .float_group_window import FloatGroupWindow
 from .localization import STRINGS  # 导入汉化配置
 
@@ -497,7 +498,14 @@ class SocialPage(QWidget):
 
             html = ""
             for msg in data['chat_history']:
-                html += f"<p><b>[{msg['time']}] {msg['sender']}:</b> {msg['content']}</p>"
+                # 【修改】将时间戳转为本地时间
+                try:
+                    ts = float(msg.get('time', 0))
+                    local_time = datetime.fromtimestamp(ts).strftime("%H:%M")
+                except:
+                    local_time = "??:??"
+                html += f"<p><b>[{local_time}] {msg['sender']}:</b> {msg['content']}</p>"
+
             self.chat_display.setHtml(html)
             self.chat_display.moveCursor(self.chat_display.textCursor().MoveOperation.End)
 
@@ -531,7 +539,14 @@ class SocialPage(QWidget):
 
         elif dtype == "group_msg_push":
             if self.current_group_id == data['group_id']:
-                line = f"<p><b>[{data['time']}] {data['sender']}:</b> {data['content']}</p>"
+                # 【修改】将时间戳转为本地时间
+                try:
+                    ts = float(data.get('time', 0))
+                    local_time = datetime.fromtimestamp(ts).strftime("%H:%M")
+                except:
+                    local_time = "??:??"
+
+                line = f"<p><b>[{local_time}] {data['sender']}:</b> {data['content']}</p>"
                 self.chat_display.append(line)
                 if self.float_group_win:
                     self.float_group_win.append_chat(line)

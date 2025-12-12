@@ -173,29 +173,42 @@ class ClientHandler(threading.Thread):
         increment = request.get('increment', 0)
         duration = request.get('duration', 0)
         client_ts = request.get('timestamp')  # 【关键】获取客户端时间戳
+        client_date_str = request.get('local_date')  # 【关键】新增：获取客户端的日期字符串 (YYYY-MM-DD)
 
         if increment <= 0 and duration <= 0: return None
 
-        # 如果客户端传了时间戳，就用客户端的，否则 fallback 到服务器时间
-        if client_ts:
-            record_time = datetime.fromtimestamp(client_ts)
-            today = record_time.date()
-        else:
-            record_time = datetime.now()
-            today = date.today()
-
         session = db_manager.get_session()
         try:
+            # 1. 记录明细 (DetailRecord)
+            # 依然使用时间戳记录精确时间点
+            if client_ts:
+                record_time = datetime.fromtimestamp(client_ts)
+            else:
+                record_time = datetime.now()
+
             new_record = DetailRecord(
                 user_id=self.user_id,
                 word_increment=increment,
                 duration_seconds=duration,
                 source_type="client_sync",
-                end_time=record_time  # 使用客户端时间
+                end_time=record_time
             )
             session.add(new_record)
 
-            # 存入 DailyReport 时使用计算出的 today (即客户端的今天)
+            # 2. 记录日报 (DailyReport)
+            # 【修复时区问题】：优先使用客户端传来的 local_date 确定“今天”是哪一天
+            if client_date_str:
+                try:
+                    today = datetime.strptime(client_date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    today = date.today()  # 格式错误回退到服务器日期
+            else:
+                # 兼容逻辑
+                if client_ts:
+                    today = datetime.fromtimestamp(client_ts).date()
+                else:
+                    today = date.today()
+
             daily = session.query(DailyReport).filter_by(user_id=self.user_id, report_date=today).first()
             if not daily:
                 daily = DailyReport(user_id=self.user_id, report_date=today, total_words=0)
@@ -516,7 +529,8 @@ class ClientHandler(threading.Thread):
                 "group_id": group_id,
                 "sender": user.nickname,
                 "content": content,
-                "time": datetime.now().strftime("%H:%M")
+                # 【修改】发送时间戳，而不是服务器格式化好的时间
+                "time": time.time()
             }
             self.broadcast_to_users(member_ids, push_msg)
         finally:
@@ -534,11 +548,14 @@ class ClientHandler(threading.Thread):
                 GroupMessage.group_id == group_id,
                 GroupMessage.timestamp >= two_days_ago
             ).order_by(GroupMessage.timestamp.asc()).all()
+
             chat_history = [{
                 "sender": m.user_nickname,
                 "content": m.content,
-                "time": m.timestamp.strftime("%H:%M")
+                # 【修改】发送时间戳，而不是服务器格式化好的时间
+                "time": m.timestamp.timestamp()
             } for m in msgs]
+
             members = session.query(GroupMember).filter_by(group_id=group_id).all()
             leaderboard = []
             for m in members:
@@ -597,7 +614,8 @@ class ClientHandler(threading.Thread):
                 "group_id": group_id,
                 "sender": "SYSTEM",
                 "content": msg_content,
-                "time": datetime.now().strftime("%H:%M")
+                # 【修改】使用时间戳
+                "time": time.time()
             }
             self.broadcast_to_users(member_ids, push_msg)
             self.broadcast_to_users(member_ids, {"type": "sprint_status_push", "group_id": group_id})
