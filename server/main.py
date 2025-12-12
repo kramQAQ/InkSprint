@@ -80,6 +80,7 @@ class ClientHandler(threading.Thread):
             return False
 
     def broadcast_to_users(self, user_ids, message_dict):
+        """向指定用户列表发送消息"""
         with clients_lock:
             for uid in user_ids:
                 if uid in connected_clients:
@@ -87,6 +88,15 @@ class ClientHandler(threading.Thread):
                         connected_clients[uid].send_packet(message_dict)
                     except:
                         pass
+
+    def broadcast_to_all(self, message_dict):
+        """向所有在线用户发送消息"""
+        with clients_lock:
+            for uid, client in connected_clients.items():
+                try:
+                    client.send_packet(message_dict)
+                except:
+                    pass
 
     # --- 业务处理函数 ---
 
@@ -368,8 +378,13 @@ class ClientHandler(threading.Thread):
             if action == 'accept':
                 friend_req.status = 'accepted'
                 # 创建双向关系 (Me -> Sender) 也设为 accepted
-                reverse_rel = Friend(user_id=self.user_id, friend_id=sender_id, status='accepted')
-                session.add(reverse_rel)
+                # 检查反向是否已经存在（防止重复数据）
+                existing_reverse = session.query(Friend).filter_by(user_id=self.user_id, friend_id=sender_id).first()
+                if not existing_reverse:
+                    reverse_rel = Friend(user_id=self.user_id, friend_id=sender_id, status='accepted')
+                    session.add(reverse_rel)
+                else:
+                    existing_reverse.status = 'accepted'
 
                 # 确保双向都被提交
                 session.commit()
@@ -416,12 +431,18 @@ class ClientHandler(threading.Thread):
         name = request.get('name')
         is_private = request.get('is_private', False)
 
+        # 确保 is_private 是布尔值
+        if is_private == "true" or is_private == 1:
+            is_private = True
+        elif is_private == "false" or is_private == 0:
+            is_private = False
+
         session = db_manager.get_session()
         try:
             # 1. 检查是否已经在其他群
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current:
-                # 【新增】返回当前群ID，方便客户端恢复状态
+                # 返回当前群ID，方便客户端恢复状态
                 return {
                     "type": "create_group_response",
                     "status": "fail",
@@ -437,6 +458,11 @@ class ClientHandler(threading.Thread):
             session.add(member)
             session.commit()
 
+            # 【关键修复】创建成功后，如果是非私密房间，广播通知所有大厅用户刷新列表
+            if not is_private:
+                print(f"[Group] Broadcasting refresh_groups because {name} was created.")
+                self.broadcast_to_all({"type": "refresh_groups"})
+
             return {"type": "create_group_response", "status": "success", "group_id": new_group.id, "group_name": name}
         finally:
             session.close()
@@ -444,6 +470,7 @@ class ClientHandler(threading.Thread):
     def handle_get_public_groups(self, request):
         session = db_manager.get_session()
         try:
+            # 明确过滤 is_private 为 False 的房间
             groups = session.query(Group).filter_by(is_private=False).order_by(Group.updated_at.desc()).limit(50).all()
             data = []
             for g in groups:
@@ -469,7 +496,7 @@ class ClientHandler(threading.Thread):
                 if current.group_id == group_id:
                     return {"type": "join_group_response", "status": "success", "group_id": group_id}
                 else:
-                    # 【新增】返回当前群ID
+                    # 返回当前群ID
                     return {
                         "type": "join_group_response",
                         "status": "fail",
@@ -490,6 +517,10 @@ class ClientHandler(threading.Thread):
                 group.updated_at = datetime.now()
             session.commit()
 
+            # 广播刷新（因为人数变了）
+            if not group.is_private:
+                self.broadcast_to_all({"type": "refresh_groups"})
+
             return {"type": "join_group_response", "status": "success", "group_id": group_id}
         finally:
             session.close()
@@ -500,7 +531,12 @@ class ClientHandler(threading.Thread):
         session = db_manager.get_session()
         try:
             session.query(GroupMember).filter_by(user_id=self.user_id, group_id=group_id).delete()
+            # 如果房间没人了，可以考虑删除房间，这里暂时保留
             session.commit()
+
+            # 广播刷新
+            self.broadcast_to_all({"type": "refresh_groups"})
+
             return {"type": "leave_group_response", "status": "success"}
         finally:
             session.close()

@@ -22,13 +22,15 @@ class HeatmapWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 颜色分级: 0, 1-499, 500-1499, 1500-2999, 3000+
+        # 【修改】严格匹配用户要求的五档颜色
+        # 原色（灰色）浅绿 绿 深绿 墨绿
+        # 0, 1, 500, 1500, 3000
         colors = [
             QColor("#EBEDF0"),  # 0
-            QColor("#9BE9A8"),  # 1-499
-            QColor("#40C463"),  # 500-1499
-            QColor("#30A14E"),  # 1500-2999
-            QColor("#216E39")  # 3000+
+            QColor("#9BE9A8"),  # 1-499 (浅绿)
+            QColor("#40C463"),  # 500-1499 (绿)
+            QColor("#30A14E"),  # 1500-2999 (深绿)
+            QColor("#216E39")   # 3000+ (墨绿)
         ]
 
         today = datetime.date.today()
@@ -49,10 +51,16 @@ class HeatmapWidget(QWidget):
                 count = self.data.get(date_str, 0)
 
                 color_idx = 0
-                if count > 0: color_idx = 1
-                if count >= 500: color_idx = 2
-                if count >= 1500: color_idx = 3
-                if count >= 3000: color_idx = 4
+                if count >= 3000:
+                    color_idx = 4
+                elif count >= 1500:
+                    color_idx = 3
+                elif count >= 500:
+                    color_idx = 2
+                elif count >= 1:
+                    color_idx = 1
+                else:
+                    color_idx = 0
 
                 painter.setBrush(QBrush(colors[color_idx]))
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -180,6 +188,7 @@ class AnalyticsPage(QWidget):
 
     def load_data(self):
         if self.network:
+            print("[Analytics] Fetching data...")
             self.network.send_request({"type": "get_analytics"})
 
     def handle_response(self, data):

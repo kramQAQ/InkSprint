@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QListWidget, QListWidgetItem, QTabWidget,
                              QInputDialog, QMessageBox, QFrame, QSplitter, QTextEdit,
-                             QCheckBox, QDialog, QFormLayout, QSpinBox, QStackedWidget)
+                             QCheckBox, QDialog, QFormLayout, QSpinBox, QStackedWidget,
+                             QSizePolicy, QButtonGroup)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
 from .float_group_window import FloatGroupWindow
@@ -33,6 +34,7 @@ class SocialPage(QWidget):
 
         # 按钮引用以便加红点
         self.btn_friend_requests = None
+        self.tab_btns = {}  # 存储顶部切换按钮
 
         self.setup_ui()
 
@@ -66,16 +68,65 @@ class SocialPage(QWidget):
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.create_friends_tab(), "👥 Friends")
-        self.tabs.addTab(self.create_groups_tab(), "💬 Groups")
+        # --- Top Switch Buttons (Tiled Row) ---
+        top_bar = QWidget()
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
 
-        layout.addWidget(self.tabs)
+        self.btn_group = QButtonGroup(self)
+
+        # 交换顺序：先 Groups 后 Friends
+        self.btn_tab_groups = QPushButton("💬 Groups")
+        self.btn_tab_friends = QPushButton("👥 Friends")
+
+        for idx, btn in enumerate([self.btn_tab_groups, self.btn_tab_friends]):
+            btn.setCheckable(True)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setFixedHeight(45)
+            # 基础样式，选中样式在 Main Window theme 中统一或者这里简单处理
+            # 为了简单，这里直接使用setStyleSheet模拟Tab效果
+            btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    background-color: transparent;
+                    font-weight: bold;
+                    font-size: 15px;
+                    border-bottom: 2px solid transparent;
+                }
+                QPushButton:checked {
+                    color: #9DC88D;
+                    border-bottom: 2px solid #9DC88D;
+                }
+            """)
+            self.btn_group.addButton(btn, idx)
+            top_layout.addWidget(btn)
+            btn.clicked.connect(lambda _, i=idx: self.main_stack.setCurrentIndex(i))
+
+        layout.addWidget(top_bar)
+
+        # --- Content Stack ---
+        self.main_stack = QStackedWidget()
+
+        # 1. Groups Page
+        self.main_stack.addWidget(self.create_groups_tab())
+
+        # 2. Friends Page
+        self.main_stack.addWidget(self.create_friends_tab())
+
+        layout.addWidget(self.main_stack)
+
+        # 默认选中 Groups
+        self.btn_tab_groups.setChecked(True)
+        self.main_stack.setCurrentIndex(0)
 
     def create_friends_tab(self):
         widget = QWidget()
         layout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
 
         # Top Bar
         top = QHBoxLayout()
@@ -105,6 +156,7 @@ class SocialPage(QWidget):
     def create_groups_tab(self):
         widget = QWidget()
         main_layout = QVBoxLayout(widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
         self.group_stack = QStackedWidget()
 
@@ -399,6 +451,9 @@ class SocialPage(QWidget):
                 status_icon = "🟢" if f['status'] == 'Online' else "⚫"
                 self.friend_list.addItem(f"{status_icon} {f['nickname']} ({f['username']})")
 
+        elif dtype == "refresh_groups":
+            self.refresh_group_list()
+
         elif dtype == "group_list_response":
             self.group_list_widget.clear()
             for g in data.get("data", []):
@@ -482,13 +537,8 @@ class SocialPage(QWidget):
                 self.refresh_current_group_data()
 
     def _handle_group_error(self, data):
-        # 如果返回了 current_group_id，说明用户卡在了一个房间里，提供跳转选项
         if 'current_group_id' in data:
-            reply = QMessageBox.question(self, "Conflict",
-                                         "You are already in another room. Do you want to enter it?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self.enter_room_view(data['current_group_id'], "Recovered Room",
-                                     0)  # 0 means not owner for now, will update on refresh
+            gid = data['current_group_id']
+            self.enter_room_view(gid, "Restoring Room...", 0)
         else:
             QMessageBox.warning(self, "Failed", data.get('msg', 'Unknown error'))

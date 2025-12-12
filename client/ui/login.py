@@ -293,6 +293,9 @@ class LoginWindow(QWidget):
         t = self.current_theme
         self.shadow_effect.setColor(Qt.GlobalColor.black if t["name"] == "dark" else Qt.GlobalColor.gray)
 
+        # 【修改】Light 模式下 Close 按钮颜色改成黑色 (#000000)
+        close_btn_color = "#E4E4E7" if t["name"] == "dark" else "#000000"
+
         style = f"""
             LoginWindow {{ background: transparent; }}
             QFrame#LoginCard {{ background-color: {t['card_bg']}; border-radius: 20px; }}
@@ -312,6 +315,9 @@ class LoginWindow(QWidget):
             QLineEdit:focus {{ border: 1px solid {t['accent']}; background-color: {t['card_bg']}; }}
 
             QPushButton {{ border: none; font-size: 14px; background: transparent; }}
+
+            /* 明确设置 Close 按钮颜色 */
+            QPushButton[text="×"] {{ color: {close_btn_color}; font-size: 20px; }}
 
             QPushButton#BtnPrimary {{ 
                 background-color: {t['accent']}; color: #FFFFFF; font-weight: bold; border-radius: 25px; 

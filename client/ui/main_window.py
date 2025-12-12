@@ -2,13 +2,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QGraphicsDropShadowEffect,
                              QFileDialog, QInputDialog, QListWidget, QAbstractItemView, QMenu,
                              QSizePolicy, QCheckBox, QLineEdit, QStackedWidget, QColorDialog, QFormLayout, QMessageBox)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QBuffer, QByteArray
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QBuffer, QByteArray, QDate
 from PyQt6.QtGui import QAction, QColor, QPixmap, QImage
 import os
 import sys
 import base64
 import time
-import json  # 新增 json 导入
+import json
 
 client_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if client_dir not in sys.path:
@@ -18,7 +18,7 @@ try:
     from .theme import ThemeManager, DEFAULT_ACCENT
     from .float_window import FloatWindow
     from .analytics import AnalyticsPage
-    from .social_page import SocialPage  # ✅ 新增：导入社交页面
+    from .social_page import SocialPage
     from core.file_monitor import FileMonitor
 except ImportError as e:
     print(f"❌ 导入错误: {e}")
@@ -34,7 +34,7 @@ class MainWindow(QWidget):
     def __init__(self, is_night=False, network_manager=None):
         super().__init__()
         self.setWindowTitle("InkSprint Dashboard")
-        self.resize(1100, 720)  # ✅ 调整宽度以适应社交界面
+        self.resize(1100, 720)
         self.network = network_manager
 
         self.is_night = is_night
@@ -43,10 +43,13 @@ class MainWindow(QWidget):
 
         # 数据状态
         self.user_data = {"nickname": "Guest", "username": "guest", "avatar": None, "email": ""}
-        self.today_base_count = 0  # 从服务器获取的今日已存字数
-        self.session_increment = 0  # 本次运行新增字数
+        self.today_base_count = 0  # 服务器获取的今日初始字数
+        self.session_increment = 0  # 本次运行累计总增量
+        self.last_synced_increment = 0  # 上一次同步时的增量 (用于增量同步)
+
         self.session_start_time = time.time()
-        self.user_id = 0  # ✅ 新增：存储用户ID
+        self.current_report_date = QDate.currentDate()  # 记录当前日期用于跨天检测
+        self.user_id = 0
 
         # 本地配置路径
         self.config_path = os.path.join(client_dir, "sources_config.json")
@@ -69,7 +72,7 @@ class MainWindow(QWidget):
         self.monitor_thread.stats_updated.connect(self.float_window.update_data)
         self.pomo_update_signal.connect(self.float_window.update_timer)
 
-        # ✅ 初始化所有页面引用
+        # 页面引用
         self.page_dashboard = None
         self.page_analytics = None
         self.page_social = None
@@ -78,12 +81,9 @@ class MainWindow(QWidget):
         self.setup_ui()
         self.apply_theme()
 
-        # 加载本地源配置
         self.load_local_sources()
-
         self.monitor_thread.start()
 
-        # 监听网络消息以更新分析页面
         if self.network:
             self.network.message_received.connect(self.dispatch_network_message)
 
@@ -122,7 +122,6 @@ class MainWindow(QWidget):
 
         # 导航按钮
         self.nav_btns = {}
-        # ✅ 更新导航项，加入 Social (Index 2)
         nav_items = [("🏠  Dashboard", 0), ("📊  Analytics", 1), ("👥  Social", 2), ("⚙️  Settings", 3)]
 
         for text, page_idx in nav_items:
@@ -141,19 +140,15 @@ class MainWindow(QWidget):
         # === 右侧内容区 ===
         self.content_stack = QStackedWidget()
 
-        # Page 0: Dashboard
         self.page_dashboard = self.create_dashboard_page()
         self.content_stack.addWidget(self.page_dashboard)
 
-        # Page 1: Analytics
         self.page_analytics = AnalyticsPage(self.network)
         self.content_stack.addWidget(self.page_analytics)
 
-        # Page 2: Social (✅ 静态初始化，避免动态崩溃)
         self.page_social = SocialPage(self.network, user_id=0)
         self.content_stack.addWidget(self.page_social)
 
-        # Page 3: Settings
         self.page_settings = self.create_settings_page()
         self.content_stack.addWidget(self.page_settings)
 
@@ -292,27 +287,20 @@ class MainWindow(QWidget):
     # --- 本地配置管理 ---
 
     def load_local_sources(self):
-        """从本地 JSON 加载文件源配置"""
         if not os.path.exists(self.config_path):
             return
-
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 sources = data.get("sources", [])
-
-                # 仅加载属于当前用户的配置（如果需要多用户支持，这里可以加个判断）
-                # 这里简化为直接加载，假设单机用户或不区分
-
                 for src in sources:
                     path = src.get('path')
                     stype = src.get('type', 'local')
                     if path:
                         is_web = (stype == 'web')
                         self.monitor_thread.add_source(path, is_web)
-                        # 界面上也要添加
-                        icon = "🌐" if is_web else "📄"
-                        self.list_sources.addItem(f"{icon}  {path}")
+                        # 【修改】加载时不显示图标
+                        self.list_sources.addItem(f"{path}")
 
                 self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
                 print(f"[Config] Loaded {len(sources)} sources from local config.")
@@ -320,16 +308,14 @@ class MainWindow(QWidget):
             print(f"[Config Error] Failed to load local sources: {e}")
 
     def save_local_sources(self):
-        """保存当前文件源配置到本地 JSON"""
         sources = []
         for i in range(self.list_sources.count()):
             item_text = self.list_sources.item(i).text()
-            # item_text 格式: "📄  C:/path/to/doc"
-            parts = item_text.split("  ", 1)
-            if len(parts) == 2:
-                icon, path = parts
-                stype = 'web' if '🌐' in icon else 'local'
-                sources.append({"path": path, "type": stype})
+            # 【修改】保存时无需分割图标
+            path = item_text.strip()
+            # 简单判断 URL 还是 路径
+            stype = 'web' if (path.startswith('http://') or path.startswith('https://')) else 'local'
+            sources.append({"path": path, "type": stype})
 
         data = {"sources": sources, "last_updated": time.time()}
 
@@ -343,14 +329,12 @@ class MainWindow(QWidget):
     # --- 核心逻辑 ---
 
     def set_user_info(self, data):
-        """登录成功后设置数据"""
         self.user_data = data
-        self.user_id = data.get("user_id", 0)  # ✅ 获取用户ID
+        self.user_id = data.get("user_id", 0)
         nickname = data.get("nickname", "Writer")
         username = data.get("username", "unknown")
         email = data.get("email", "")
 
-        # 1. 恢复今日累计字数
         self.today_base_count = data.get("today_total", 0)
 
         self.lbl_title.setText(f"Hi, {nickname}")
@@ -370,19 +354,27 @@ class MainWindow(QWidget):
         else:
             self.load_default_avatar()
 
-        # ✅ 激活社交页面
         if self.page_social:
             self.page_social.set_user_id(self.user_id)
             if self.user_id:
                 self.page_social.load_friends()
                 self.page_social.refresh_group_list()
 
-                # 【新增】如果服务端返回了 current_group，自动恢复房间视图
                 if 'current_group' in data and data['current_group']:
                     self.page_social.restore_group_state(data['current_group'])
 
     def update_dashboard_stats(self, total_in_monitor, increment, wph):
         self.session_increment = increment
+
+        # 【修改】跨天检测：如果日期变更，重置昨日的基础字数
+        now_date = QDate.currentDate()
+        if now_date != self.current_report_date:
+            print("[DateChange] New day detected! Resetting daily base.")
+            self.today_base_count = 0
+            self.current_report_date = now_date
+            # 注意：session_increment 是本次运行的累计，无法轻易清零，
+            # 但重置 base 为 0 后，显示的就是 session_increment，符合“新的一天”逻辑（虽然包含了跨夜前的一部分）
+
         daily_total = self.today_base_count + increment
         self.lbl_main_count.setText(str(daily_total))
         self.card_main.findChild(QLabel, "CardSub").setText(f"Session: +{increment}")
@@ -393,50 +385,54 @@ class MainWindow(QWidget):
         btn.setChecked(True)
         self.content_stack.setCurrentIndex(page_idx)
 
-        # 如果切换到分析页，触发数据加载
+        # 切换到分析页时，触发增量同步和加载
         if page_idx == 1:
+            self.sync_data_incrementally()
             self.page_analytics.load_data()
-        # ✅ 如果切换到社交页，刷新数据
+
         elif page_idx == 2 and self.page_social and self.user_id:
             self.page_social.load_friends()
             self.page_social.refresh_group_list()
 
+    def sync_data_incrementally(self):
+        """增量同步数据到服务器，确保热力图实时更新"""
+        if not self.network: return
+
+        # 计算自上次同步后新增的字数
+        delta = self.session_increment - self.last_synced_increment
+
+        duration = int(time.time() - self.session_start_time)  # 简化处理，每次发总时长不影响增量
+        # 优化：时长也用增量会更准，但服务器是记录一条条记录，所以每次 duration 可以传 0 或者一段
+        # 这里为了简单，我们只在有字数变化时同步
+
+        if delta > 0:
+            print(f"[Sync] Sending incremental sync: +{delta}")
+            self.network.send_request({
+                "type": "sync_data",
+                "increment": delta,
+                "duration": 0  # 暂不精确统计分段时长
+            })
+            self.last_synced_increment = self.session_increment
+
     def dispatch_network_message(self, data):
-        """分发网络消息到各个子页面"""
         rtype = data.get("type", "")
         if rtype in ["analytics_data", "details_data"]:
             self.page_analytics.handle_response(data)
 
-        # ✅ 社交消息处理
         elif rtype in ["search_user_response", "get_friends_response",
                        "group_list_response", "create_group_response", "join_group_response",
                        "group_detail_response", "group_msg_push", "sprint_status_push",
                        "refresh_friends", "refresh_friend_requests", "friend_requests_response",
-                       "respond_friend_response"]:
+                       "respond_friend_response", "refresh_groups"]:
             if self.page_social:
                 self.page_social.handle_network_msg(data)
 
     def closeEvent(self, event):
-        """窗口关闭时的操作"""
-
-        # 1. 【新增】保存本地文件配置
         self.save_local_sources()
-
-        # 2. 同步字数记录到云端（可选，依然保留以记录数据）
         if self.network:
-            duration = int(time.time() - self.session_start_time)
-            # 只有当有数据变化时才上传
-            if self.session_increment > 0 or duration > 60:
-                self.network.send_request({
-                    "type": "sync_data",
-                    "increment": self.session_increment,
-                    "duration": duration
-                })
+            # 最后的同步
+            self.sync_data_incrementally()
 
-            # 【已移除】不再同步 sources 到服务器
-            # self.network.send_request({"type": "sync_sources", "sources": sources})
-
-        # 等待一小会儿确保发送完成
         import time as t
         t.sleep(0.2)
         event.accept()
@@ -490,20 +486,18 @@ class MainWindow(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Doc", "", "Documents (*.docx *.txt)")
         if file_path:
             self._perform_add(file_path, False)
-            # 添加后立即保存配置
             self.save_local_sources()
 
     def add_web_source(self):
         text, ok = QInputDialog.getText(self, "Add Web", "URL:")
         if ok and text:
             self._perform_add(text.strip(), True)
-            # 添加后立即保存配置
             self.save_local_sources()
 
     def _perform_add(self, path, is_web):
         if self.monitor_thread.add_source(path, is_web):
-            icon = "🌐" if is_web else "📄"
-            self.list_sources.addItem(f"{icon}  {path}")
+            # 【修改】列表不加图标
+            self.list_sources.addItem(f"{path}")
             self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
 
     def show_list_context_menu(self, pos):
@@ -514,11 +508,10 @@ class MainWindow(QWidget):
             menu.exec(self.list_sources.mapToGlobal(pos))
 
     def delete_source(self, item):
-        path = item.text().split("  ", 1)[1]
+        path = item.text()  # 【修改】直接获取路径，没有图标分割
         self.monitor_thread.remove_source(path)
         self.list_sources.takeItem(self.list_sources.row(item))
         self.lbl_list_title.setText(f"Active Sources ({self.list_sources.count()}/10)")
-        # 删除后立即保存配置
         self.save_local_sources()
 
     def on_pomo_time_edited(self):
@@ -653,7 +646,8 @@ class MainWindow(QWidget):
         self.btn_local = QPushButton("➕ Local")
         self.btn_local.setObjectName("ActionBtnLocal")
         self.btn_local.clicked.connect(self.add_local_source)
-        self.btn_web = QPushButton("🌐 Tencent")
+        # 【修改】改为 Online
+        self.btn_web = QPushButton("🌐 Online")
         self.btn_web.setObjectName("ActionBtnWeb")
         self.btn_web.clicked.connect(self.add_web_source)
         for b in [self.btn_local, self.btn_web]:
@@ -712,7 +706,6 @@ class MainWindow(QWidget):
         self.add_shadow(card)
         return card
 
-    # ... (Theme and Styling functions remain same) ...
     def apply_theme(self):
         t = self.current_theme
         self.btn_color_pick.setStyleSheet(
