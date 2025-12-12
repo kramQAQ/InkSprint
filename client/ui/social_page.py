@@ -317,6 +317,10 @@ class SocialPage(QWidget):
                 self.network.send_request({"type": "respond_friend", "request_id": req_id, "action": action})
                 lst.takeItem(lst.row(item))
 
+                # 【核心修复】无论接受或拒绝，都立即触发好友列表刷新
+                # 这样可以确保在关闭请求窗口后，好友列表是最新状态
+                self.load_friends()
+
         lst.itemDoubleClicked.connect(on_item_dbl_click)
         dlg.exec()
 
@@ -439,6 +443,7 @@ class SocialPage(QWidget):
                 QMessageBox.warning(self, STRINGS["msg_not_found_title"], STRINGS["msg_user_not_found"])
 
         elif dtype == "refresh_friends":
+            # 理论上服务器推送后这里会刷新，但为了保险，在处理请求时已经强制刷新了一次
             self.load_friends()
 
         elif dtype == "refresh_friend_requests":
