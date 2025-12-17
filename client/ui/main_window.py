@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QFrame, QGraphicsDropShadowEffect,
                              QFileDialog, QInputDialog, QListWidget, QAbstractItemView, QMenu,
-                             QSizePolicy, QCheckBox, QLineEdit, QStackedWidget, QColorDialog, QFormLayout, QMessageBox)
+                             QSizePolicy, QCheckBox, QLineEdit, QStackedWidget, QColorDialog, QFormLayout, QMessageBox,
+                             QFontComboBox, QApplication)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QEvent, QBuffer, QByteArray, QDate
-from PyQt6.QtGui import QAction, QColor, QPixmap, QImage
+from PyQt6.QtGui import QAction, QColor, QPixmap, QImage, QFont
 import os
 import sys
 import base64
@@ -40,33 +41,39 @@ class MainWindow(QWidget):
 
         self.is_night = is_night
         self.current_accent = DEFAULT_ACCENT
-        self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
-
-        # 数据状态
         self.user_data = {"nickname": "Guest", "username": "guest", "avatar": None, "email": ""}
 
-        # 【关键变量】
-        self.today_base_count = 0  # 从服务器获取的“今天已完成字数”（不含本次运行期间的增量）
-        self.session_increment = 0  # 本次运行期间的总增量
-        self.last_synced_increment = 0
+        # 持久化文件路径
+        self.settings_path = os.path.join(client_dir, "user_settings.json")
+        self.config_path = os.path.join(client_dir, "sources_config.json")
 
-        # 跨天修正：如果运行过程中跨天，我们需要减去属于昨天的部分增量
+        self.pomo_seconds = 25 * 60
+        self.pomo_is_running = False
+        self.pomo_mode = "timer"
+        self.current_font_family = "Segoe UI"
+
+        # 1. 先加载配置（恢复颜色、字体、番茄钟）
+        self.load_user_settings()
+
+        # 2. 生成主题
+        self.current_theme = ThemeManager.get_theme(self.is_night, self.current_accent)
+        self.apply_font_globally()
+
+        # 数据状态
+        self.today_base_count = 0
+        self.session_increment = 0
+        self.last_synced_increment = 0
         self.daily_increment_offset = 0
 
         self.session_start_time = time.time()
         self.current_report_date = QDate.currentDate()
         self.user_id = 0
 
-        self.config_path = os.path.join(client_dir, "sources_config.json")
-
         self.monitor_thread = FileMonitor()
         self.monitor_thread.stats_updated.connect(self.update_dashboard_stats)
 
         self.pomo_timer = QTimer(self)
         self.pomo_timer.timeout.connect(self.update_pomodoro_tick)
-        self.pomo_seconds = 25 * 60
-        self.pomo_is_running = False
-        self.pomo_mode = "timer"
 
         self.float_window = FloatWindow(self.current_accent)
         self.float_window.restore_signal.connect(self.restore_from_float)
@@ -76,21 +83,22 @@ class MainWindow(QWidget):
         self.monitor_thread.stats_updated.connect(self.float_window.update_data)
         self.pomo_update_signal.connect(self.float_window.update_timer)
 
-        # 【修复关键】添加自动同步定时器
-        # 每 10 秒尝试同步一次数据到服务器，确保排行榜实时更新
         self.auto_sync_timer = QTimer(self)
         self.auto_sync_timer.timeout.connect(self.sync_data_incrementally)
         self.auto_sync_timer.start(10000)
 
         self.page_dashboard = None
         self.page_analytics = None
-        self.page_social = None  # 在 setup_ui 中初始化
+        self.page_social = None
         self.page_settings = None
 
         self.setup_ui()
         self.apply_theme()
         self.load_local_sources()
         self.monitor_thread.start()
+
+        # 初始化 UI 后，恢复番茄钟显示
+        self.update_display_time()
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -243,6 +251,10 @@ class MainWindow(QWidget):
         self.edit_nickname.setPlaceholderText(STRINGS["placeholder_nick"])
         form_layout.addRow(STRINGS["lbl_nick"], self.edit_nickname)
 
+        self.edit_signature = QLineEdit()  # 【新增】个性签名编辑
+        self.edit_signature.setPlaceholderText("个性签名")
+        form_layout.addRow("签名:", self.edit_signature)
+
         self.edit_email = QLineEdit()
         self.edit_email.setPlaceholderText(STRINGS["placeholder_bind_email"])
         form_layout.addRow(STRINGS["lbl_email"], self.edit_email)
@@ -274,6 +286,13 @@ class MainWindow(QWidget):
         self.btn_color_pick.clicked.connect(self.open_color_picker)
         form_layout.addRow(STRINGS["lbl_accent"], self.btn_color_pick)
 
+        # 【新增】字体选择
+        self.font_combo = QFontComboBox()
+        self.font_combo.setCurrentFont(QFont(self.current_font_family))
+        self.font_combo.currentFontChanged.connect(self.change_app_font)
+        self.font_combo.setFixedSize(200, 35)
+        form_layout.addRow("全局字体:", self.font_combo)
+
         self.btn_save_settings = QPushButton(STRINGS["btn_save"])
         self.btn_save_settings.setFixedSize(150, 45)
         self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -286,6 +305,56 @@ class MainWindow(QWidget):
 
         self.pending_avatar_b64 = None
         return page
+
+    # --- 持久化逻辑 ---
+
+    def load_user_settings(self):
+        """加载用户本地配置"""
+        if os.path.exists(self.settings_path):
+            try:
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    self.current_accent = settings.get("accent_color", DEFAULT_ACCENT)
+                    self.current_font_family = settings.get("font_family", "Segoe UI")
+
+                    # 恢复番茄钟
+                    pomo_data = settings.get("pomodoro", {})
+                    self.pomo_seconds = pomo_data.get("seconds", 25 * 60)
+                    self.pomo_mode = pomo_data.get("mode", "timer")
+                    # 默认不自动开始，用户需手动继续
+            except Exception as e:
+                print(f"Error loading settings: {e}")
+
+    def save_user_settings(self):
+        """保存用户本地配置"""
+        settings = {
+            "accent_color": self.current_accent,
+            "font_family": self.current_font_family,
+            "pomodoro": {
+                "seconds": self.pomo_seconds,
+                "mode": self.pomo_mode
+            }
+        }
+        try:
+            with open(self.settings_path, 'w', encoding='utf-8') as f:
+                json.dump(settings, f, indent=2)
+            print("Settings saved.")
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
+    def change_app_font(self, font):
+        self.current_font_family = font.family()
+        self.apply_font_globally()
+
+    def apply_font_globally(self):
+        app = QApplication.instance()
+        if app:
+            font = QFont(self.current_font_family)
+            font.setPointSize(10)  # 默认大小
+            app.setFont(font)
+
+            # 强制刷新当前样式
+            self.apply_theme()
 
     def load_local_sources(self):
         if not os.path.exists(self.config_path):
@@ -325,6 +394,7 @@ class MainWindow(QWidget):
         nickname = data.get("nickname", "Writer")
         username = data.get("username", "unknown")
         email = data.get("email", "")
+        signature = data.get("signature", "")
 
         self.today_base_count = data.get("today_total", 0)
         self.daily_increment_offset = 0
@@ -333,6 +403,7 @@ class MainWindow(QWidget):
         self.lbl_id_display.setText(username)
         self.edit_nickname.setText(nickname)
         self.edit_email.setText(email)
+        self.edit_signature.setText(signature)
 
         if data.get("avatar_data"):
             try:
@@ -372,8 +443,6 @@ class MainWindow(QWidget):
         self.card_main.findChild(QLabel, "CardSub").setText(STRINGS["stat_session"].format(increment))
         self.lbl_speed.setText(str(wph))
 
-        # 【修复关键】如果本地字数变化较大（比如超过10个字），也立即触发同步
-        # 这样在拼字比赛时，排行榜能更快更新
         if self.session_increment - self.last_synced_increment >= 10:
             self.sync_data_incrementally()
 
@@ -414,6 +483,7 @@ class MainWindow(QWidget):
 
     def closeEvent(self, event):
         self.save_local_sources()
+        self.save_user_settings()  # 保存设置
         if self.network:
             self.sync_data_incrementally()
         import time as t
@@ -437,10 +507,11 @@ class MainWindow(QWidget):
     def save_profile_changes(self):
         new_nickname = self.edit_nickname.text().strip()
         new_email = self.edit_email.text().strip()
+        new_sig = self.edit_signature.text().strip()
         if not new_nickname:
             QMessageBox.warning(self, STRINGS["warn_title"], STRINGS["msg_nick_empty"])
             return
-        payload = {"type": "update_profile", "nickname": new_nickname, "email": new_email}
+        payload = {"type": "update_profile", "nickname": new_nickname, "email": new_email, "signature": new_sig}
         if self.pending_avatar_b64: payload["avatar_data"] = self.pending_avatar_b64
         if self.network:
             self.network.send_request(payload)
@@ -699,8 +770,9 @@ class MainWindow(QWidget):
         val_color = "#2D3436" if t['name'] == 'light' else "#FFFFFF"
         sub_color = t['text_sub']
 
+        # 字体继承全局，但移除具体 font-family 指定，让其使用全局设置
         self.setStyleSheet(f"""
-            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; font-family: 'Segoe UI', sans-serif; }}
+            QWidget {{ background-color: {t['window_bg']}; color: {t['text_main']}; }}
             QFrame#Sidebar {{ background-color: {t['card_bg']}; border-right: 1px solid {t['border']}; }}
             QFrame#UserProfile {{ background: transparent; }}
             QLabel#UserAvatar {{ background-color: #ccc; border-radius: 24px; }}
