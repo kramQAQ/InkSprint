@@ -115,21 +115,16 @@ class SimpleChartWidget(QWidget):
         painter.setBrush(QBrush(self.accent_color))
 
         for i, val in enumerate(values):
-            # 绘制柱子
             bar_h = (val / max_val) * (h - 2 * padding)
             x = padding + i * step_x + (step_x * 0.2)
             y = h - padding - bar_h
             bar_w = step_x * 0.6
 
-            if val > 0:
-                painter.drawRoundedRect(int(x), int(y), int(bar_w), int(bar_h), 4, 4)
+            painter.drawRoundedRect(int(x), int(y), int(bar_w), int(bar_h), 4, 4)
 
-                # 【修改】只有值大于0才绘制数值文字
-                painter.setPen(QPen(QColor("#555")))
-                painter.drawText(int(x), int(y) - 5, int(bar_w), 20, Qt.AlignmentFlag.AlignCenter, str(val))
-
-            # 绘制X轴标签
             painter.setPen(QPen(QColor("#555")))
+            painter.drawText(int(x), int(y) - 5, int(bar_w), 20, Qt.AlignmentFlag.AlignCenter, str(val))
+
             painter.drawText(int(x - 10), int(h - padding + 5), int(bar_w + 20), 20, Qt.AlignmentFlag.AlignCenter,
                              labels[i])
 
@@ -151,7 +146,7 @@ class AnalyticsPage(QWidget):
         lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
         top_bar.addWidget(lbl_title)
 
-        # 刷新按钮
+        # 【新增】刷新按钮
         self.btn_refresh = QPushButton("🔄")
         self.btn_refresh.setFixedSize(35, 35)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)

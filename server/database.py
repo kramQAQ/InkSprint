@@ -18,7 +18,7 @@ class User(Base):
     nickname = Column(String(50), nullable=True, comment="显示昵称")
     email = Column(String(100), unique=True, nullable=True, comment="绑定邮箱")
     avatar_url = Column(String(255), nullable=True, default="default.jpg", comment="头像路径")
-    signature = Column(String(200), nullable=True, default="Focus & Create", comment="个性签名") # 确保有默认值
+    signature = Column(String(200), nullable=True, comment="个性签名")
     created_at = Column(DateTime, default=datetime.now)
 
     # 关联关系
@@ -26,9 +26,11 @@ class User(Base):
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
     saved_sources = relationship("UserSource", back_populates="user", cascade="all, delete-orphan")
 
+    # 移除旧的 friends_sent 关联
+
 
 class FriendRequest(Base):
-    """好友请求表"""
+    """【新】好友请求表"""
     __tablename__ = 'friend_requests'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -42,7 +44,7 @@ class FriendRequest(Base):
 
 
 class Friendship(Base):
-    """已确立的好友关系表"""
+    """【新】已确立的好友关系表"""
     __tablename__ = 'friendships'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -64,7 +66,6 @@ class Group(Base):
     name = Column(String(50), nullable=False)
     owner_id = Column(Integer, ForeignKey('users.id'))
     is_private = Column(Boolean, default=False)
-    password = Column(String(50), nullable=True, comment="房间密码(可选)")  # 【新增】房间密码
     description = Column(String(200), nullable=True)
 
     # 拼字相关状态
@@ -85,7 +86,7 @@ class GroupMember(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id'))
-    user_id = Column(Integer, ForeignKey('users.id'), unique=True)  # 用户只能加入一个房间
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True)  # 【关键】新增 unique 约束：用户只能加入一个房间
     joined_at = Column(DateTime, default=datetime.now)
 
     group = relationship("Group", back_populates="members")
@@ -106,12 +107,13 @@ class GroupMessage(Base):
 
 
 class SprintScore(Base):
-    """用户在特定房间的拼字得分汇总表"""
+    """【新】用户在特定房间的拼字得分汇总表 (用于加速 Leaderboard)"""
     __tablename__ = 'sprint_scores'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    # 记录用户在当前拼字周期内的累计字数
     current_score = Column(Integer, default=0)
 
     __table_args__ = (
@@ -164,11 +166,13 @@ class UserSource(Base):
 class DatabaseManager:
     def __init__(self, db_url=None):
         if db_url is None:
+            # 【修复】使用绝对路径，确保无论在哪启动，都使用同一个数据库文件
             base_dir = os.path.dirname(os.path.abspath(__file__))
             db_path = os.path.join(base_dir, 'server_data.db')
             db_url = f'sqlite:///{db_path}'
             print(f"[Database] Using database file: {db_path}")
 
+        # 添加 check_same_thread=False 以支持多线程
         self.engine = create_engine(db_url, echo=False, connect_args={'check_same_thread': False})
         self.Session = sessionmaker(bind=self.engine)
 
@@ -181,6 +185,7 @@ class DatabaseManager:
         return self.Session()
 
 
+# 初始化时不传参数，让它自动使用绝对路径
 db_manager = DatabaseManager()
 
 if __name__ == '__main__':

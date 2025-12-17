@@ -2,113 +2,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdi
                              QPushButton, QListWidget, QListWidgetItem, QTabWidget,
                              QInputDialog, QMessageBox, QFrame, QSplitter, QTextEdit,
                              QCheckBox, QDialog, QFormLayout, QSpinBox, QStackedWidget,
-                             QSizePolicy, QButtonGroup, QGraphicsDropShadowEffect, QMenu)
+                             QSizePolicy, QButtonGroup, QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
-from PyQt6.QtGui import QColor, QBrush, QFont, QPixmap, QIcon, QAction
+from PyQt6.QtGui import QColor, QBrush, QFont, QPixmap, QIcon
 import base64
 from datetime import datetime
 from .float_group_window import FloatGroupWindow
 from .localization import STRINGS
-
-
-# --- 【自定义 UI 组件】卡片式 Item ---
-
-class FriendItemWidget(QWidget):
-    def __init__(self, avatar_data, nickname, username, signature, is_online):
-        super().__init__()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-
-        # 头像
-        self.lbl_avatar = QLabel()
-        self.lbl_avatar.setFixedSize(40, 40)
-        self.lbl_avatar.setStyleSheet("background-color: #ddd; border-radius: 20px;")
-        self.lbl_avatar.setScaledContents(True)
-        if avatar_data:
-            try:
-                pix = QPixmap()
-                pix.loadFromData(base64.b64decode(avatar_data))
-                self.lbl_avatar.setPixmap(pix)
-            except:
-                pass
-
-        # 信息
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(2)
-
-        name_line = QHBoxLayout()
-        lbl_nick = QLabel(nickname)
-        lbl_nick.setStyleSheet("font-weight: bold; font-size: 14px;")
-        lbl_uid = QLabel(f"@{username}")
-        lbl_uid.setStyleSheet("color: #888; font-size: 12px;")
-        name_line.addWidget(lbl_nick)
-        name_line.addWidget(lbl_uid)
-        name_line.addStretch()
-
-        lbl_sig = QLabel(signature if signature else "No signature")
-        lbl_sig.setStyleSheet("color: #666; font-size: 12px; font-style: italic;")
-
-        info_layout.addLayout(name_line)
-        info_layout.addWidget(lbl_sig)
-
-        # 在线状态点
-        status_dot = QLabel("●")
-        status_dot.setStyleSheet(f"color: {'#40C463' if is_online else '#ccc'}; font-size: 12px;")
-
-        layout.addWidget(self.lbl_avatar)
-        layout.addLayout(info_layout)
-        layout.addWidget(status_dot)
-
-
-class GroupItemWidget(QWidget):
-    def __init__(self, group_id, name, owner_name, member_count, updated_at, has_password, sprint_active, is_private):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # 第一行：房间名 + 锁图标
-        top = QHBoxLayout()
-        lbl_name = QLabel(name)
-        lbl_name.setStyleSheet("font-weight: bold; font-size: 16px;")
-        top.addWidget(lbl_name)
-
-        if has_password:
-            lbl_lock = QLabel("🔒")
-            top.addWidget(lbl_lock)
-
-        if is_private:
-            lbl_priv = QLabel("👁️‍🗨️")
-            top.addWidget(lbl_priv)
-
-        top.addStretch()
-
-        # 状态标签
-        if sprint_active:
-            lbl_status = QLabel("🔥 拼字中")
-            lbl_status.setStyleSheet(
-                "background-color: #ffeaea; color: #d63031; padding: 2px 5px; border-radius: 4px; font-size: 10px; font-weight: bold;")
-            top.addWidget(lbl_status)
-        else:
-            lbl_status = QLabel("🟢 可加入")
-            lbl_status.setStyleSheet(
-                "background-color: #eafef1; color: #27ae60; padding: 2px 5px; border-radius: 4px; font-size: 10px;")
-            top.addWidget(lbl_status)
-
-        # 第二行：ID | 房主 | 人数 | 时间
-        bottom = QHBoxLayout()
-        info_text = f"ID: {group_id} | 房主: {owner_name} | 👥 {member_count}/10"
-        lbl_info = QLabel(info_text)
-        lbl_info.setStyleSheet("color: #666; font-size: 12px;")
-
-        lbl_time = QLabel(updated_at)
-        lbl_time.setStyleSheet("color: #999; font-size: 11px;")
-
-        bottom.addWidget(lbl_info)
-        bottom.addStretch()
-        bottom.addWidget(lbl_time)
-
-        layout.addLayout(top)
-        layout.addLayout(bottom)
 
 
 class SocialPage(QWidget):
@@ -133,7 +33,7 @@ class SocialPage(QWidget):
         self.sprint_ctrl_frame = None
         self.lbl_room_name = None
         self.lbl_sprint_status = None
-        self.lbl_owner_avatar = None
+        self.lbl_owner_avatar = None  # 新增：房主头像
 
         self.btn_friend_requests = None
         self.btn_group = None
@@ -145,7 +45,7 @@ class SocialPage(QWidget):
         self.update_timer.timeout.connect(self.refresh_current_group_data)
 
         self.list_timer = QTimer(self)
-        self.list_timer.setInterval(60000)  # 改为1分钟刷新一次列表
+        self.list_timer.setInterval(3600 * 1000)
         self.list_timer.timeout.connect(self.refresh_group_list)
         if self.my_user_id > 0:
             self.list_timer.start()
@@ -251,33 +151,12 @@ class SocialPage(QWidget):
         top.addWidget(btn_refresh)
         layout.addLayout(top)
 
-        # 【修改】开启右键菜单
         self.friend_list = QListWidget()
-        self.friend_list.setStyleSheet("QListWidget { border: none; background: transparent; }")
-        self.friend_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.friend_list.customContextMenuRequested.connect(self.show_friend_context_menu)
+        self.friend_list.setStyleSheet(
+            "QListWidget { border: none; background: transparent; } QListWidget::item { padding: 8px; border-bottom: 1px solid #eee; }")
         layout.addWidget(self.friend_list)
 
         return widget
-
-    def show_friend_context_menu(self, pos):
-        item = self.friend_list.itemAt(pos)
-        if not item: return
-
-        friend_id = item.data(Qt.ItemDataRole.UserRole)
-
-        menu = QMenu()
-        del_action = QAction("🗑️ 删除好友", self)
-        del_action.triggered.connect(lambda: self.delete_friend(friend_id))
-        menu.addAction(del_action)
-
-        menu.exec(self.friend_list.mapToGlobal(pos))
-
-    def delete_friend(self, friend_id):
-        reply = QMessageBox.question(self, "确认", "确定要删除该好友吗？",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            self.network.send_request({"type": "delete_friend", "friend_id": friend_id})
 
     def search_user_to_add(self):
         query = self.search_input.text().strip()
@@ -318,7 +197,8 @@ class SocialPage(QWidget):
         lobby_layout.addLayout(l_top)
 
         self.group_list_widget = QListWidget()
-        self.group_list_widget.setStyleSheet("QListWidget { background: transparent; border: none; }")
+        self.group_list_widget.setStyleSheet(
+            "QListWidget { background: transparent; border: none; } QListWidget::item { padding: 10px; margin-bottom: 5px; background: white; border-radius: 8px; } QListWidget::item:hover { background: #f9f9f9; }")
         self.group_list_widget.itemDoubleClicked.connect(self.join_selected_group)
         lobby_layout.addWidget(self.group_list_widget)
 
@@ -449,13 +329,10 @@ class SocialPage(QWidget):
         sprint_l.addWidget(self.btn_stop_sprint)
         self.sprint_ctrl_frame.hide()
 
-        # 【修改】开启排行榜右键菜单
         self.rank_list = QListWidget()
         self.rank_list.setStyleSheet(
             "QListWidget { background: transparent; border: none; } QListWidget::item { padding: 5px; }")
-        self.rank_list.setIconSize(QSize(32, 32))
-        self.rank_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.rank_list.customContextMenuRequested.connect(self.show_rank_context_menu)
+        self.rank_list.setIconSize(QSize(32, 32))  # 设置图标大小
 
         rank_v.addWidget(self.sprint_ctrl_frame)
         rank_v.addWidget(QLabel(STRINGS["lbl_leaderboard"]))
@@ -475,21 +352,6 @@ class SocialPage(QWidget):
 
         main_layout.addWidget(self.group_stack)
         return widget
-
-    def show_rank_context_menu(self, pos):
-        item = self.rank_list.itemAt(pos)
-        if not item: return
-
-        user_id = item.data(Qt.ItemDataRole.UserRole)
-        # 不能加自己
-        if user_id == self.my_user_id: return
-
-        menu = QMenu()
-        add_friend_action = QAction("➕ 加为好友", self)
-        add_friend_action.triggered.connect(lambda: self.add_friend_request(user_id))
-        menu.addAction(add_friend_action)
-
-        menu.exec(self.rank_list.mapToGlobal(pos))
 
     def load_friends(self):
         if self.my_user_id > 0:
@@ -551,55 +413,21 @@ class SocialPage(QWidget):
             self.network.send_request({"type": "get_public_groups"})
 
     def show_create_group_dialog(self):
-        # 创建一个自定义 Dialog 包含 名称、密码、私密 选项
-        dlg = QDialog(self)
-        dlg.setWindowTitle(STRINGS["dialog_create_group_title"])
-        layout = QFormLayout(dlg)
-
-        name_edit = QLineEdit()
-        layout.addRow(STRINGS["dialog_group_name_label"], name_edit)
-
-        pwd_edit = QLineEdit()
-        pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        pwd_edit.setPlaceholderText("可选，留空则公开")
-        layout.addRow("房间密码:", pwd_edit)
-
-        private_check = QCheckBox("私密房间 (仅好友可见)")
-        layout.addRow("", private_check)
-
-        btns = QHBoxLayout()
-        btn_ok = QPushButton("创建")
-        btn_ok.clicked.connect(dlg.accept)
-        btns.addWidget(btn_ok)
-        layout.addRow(btns)
-
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            name = name_edit.text().strip()
-            if name:
-                self.network.send_request({
-                    "type": "create_group",
-                    "name": name,
-                    "is_private": private_check.isChecked(),
-                    "password": pwd_edit.text().strip()
-                })
+        name, ok = QInputDialog.getText(self, STRINGS["dialog_create_group_title"], STRINGS["dialog_group_name_label"])
+        if ok and name:
+            reply = QMessageBox.question(self, STRINGS["dialog_private_title"], STRINGS["dialog_private_msg"],
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            is_private = (reply == QMessageBox.StandardButton.Yes)
+            self.network.send_request({
+                "type": "create_group",
+                "name": name,
+                "is_private": is_private
+            })
 
     def join_selected_group(self, item):
         group_id = item.data(Qt.ItemDataRole.UserRole)
-        is_sprint = item.data(Qt.ItemDataRole.UserRole + 1)
-        has_password = item.data(Qt.ItemDataRole.UserRole + 2)
-
-        if is_sprint:
-            QMessageBox.warning(self, "无法加入", "该房间正在拼字中，请稍后再试。")
-            return
-
-        pwd = ""
-        if has_password:
-            text, ok = QInputDialog.getText(self, "输入密码", "该房间已上锁，请输入密码:", QLineEdit.EchoMode.Password)
-            if not ok: return
-            pwd = text.strip()
-
         if group_id is not None:
-            self.network.send_request({"type": "join_group", "group_id": group_id, "password": pwd})
+            self.network.send_request({"type": "join_group", "group_id": group_id})
 
     def enter_room_view(self, group_id, name, owner_id):
         print(f"[Social] Entering room view: {name} ({group_id})")
@@ -626,6 +454,7 @@ class SocialPage(QWidget):
         self.update_timer.start()
 
     def leave_room_confirm(self):
+        # 【新功能】针对房主的特别警告
         msg = STRINGS["msg_leave_confirm"].format(self.current_group_name or self.current_group_id)
         if self.is_group_owner:
             msg += "\n\n⚠️ 警告：你是房主，离开后房间将自动解散！"
@@ -710,7 +539,7 @@ class SocialPage(QWidget):
 
         elif dtype == "refresh_friends":
             self.load_friends()
-            # QMessageBox.information(self, STRINGS["success_title"], STRINGS["msg_friend_list_updated"]) # 避免频繁弹窗
+            QMessageBox.information(self, STRINGS["success_title"], STRINGS["msg_friend_list_updated"])
 
         elif dtype == "refresh_friend_requests":
             if self.btn_friend_requests:
@@ -725,19 +554,8 @@ class SocialPage(QWidget):
             print(f"[Social] Received friends: {data.get('data')}")
             self.friend_list.clear()
             for f in data.get("data", []):
-                # 使用自定义 Widget
-                item = QListWidgetItem(self.friend_list)
-                item.setSizeHint(QSize(200, 60))
-                item.setData(Qt.ItemDataRole.UserRole, f['id'])
-
-                widget = FriendItemWidget(
-                    f.get('avatar_data'),
-                    f['nickname'],
-                    f['username'],
-                    f.get('signature', ''),
-                    f['status'] == 'Online'
-                )
-                self.friend_list.setItemWidget(item, widget)
+                status_icon = "🟢" if f['status'] == 'Online' else "⚫"
+                self.friend_list.addItem(f"{status_icon} {f['nickname']} ({f['username']})")
 
         elif dtype == "refresh_groups":
             self.refresh_group_list()
@@ -745,23 +563,9 @@ class SocialPage(QWidget):
         elif dtype == "group_list_response":
             self.group_list_widget.clear()
             for g in data.get("data", []):
-                item = QListWidgetItem(self.group_list_widget)
-                item.setSizeHint(QSize(200, 70))
+                item = QListWidgetItem(f"🏠 {g['name']} (👥 {g['member_count']}/10) - 🕒 {g['updated_at']}")
                 item.setData(Qt.ItemDataRole.UserRole, g['id'])
-                item.setData(Qt.ItemDataRole.UserRole + 1, g['sprint_active'])
-                item.setData(Qt.ItemDataRole.UserRole + 2, g['has_password'])
-
-                widget = GroupItemWidget(
-                    g['id'],
-                    g['name'],
-                    g['owner_name'],
-                    g['member_count'],
-                    g['updated_at'],
-                    g['has_password'],
-                    g['sprint_active'],
-                    g['is_private']
-                )
-                self.group_list_widget.setItemWidget(item, widget)
+                self.group_list_widget.addItem(item)
 
         elif dtype in ["create_group_response", "join_group_response"]:
             if data['status'] == 'success':
@@ -771,15 +575,17 @@ class SocialPage(QWidget):
                 self._handle_group_error(data)
 
         elif dtype == "group_disbanded":
+            # 【新功能】处理房间被解散的通知
             if self.current_group_id == data.get('group_id'):
                 QMessageBox.warning(self, STRINGS["warn_title"], "房间已被房主解散。")
                 self.leave_room()
 
         elif dtype == "leave_group_response":
+            # 如果是主动离开/解散收到的确认
             if data.get("msg") == "Group disbanded":
                 QMessageBox.information(self, STRINGS["success_title"], "房间已解散。")
             else:
-                pass  # 静默离开
+                QMessageBox.information(self, STRINGS["success_title"], STRINGS["msg_leave_success"])
             self.leave_room()
 
         elif dtype == "group_detail_response":
@@ -823,6 +629,7 @@ class SocialPage(QWidget):
                 sender = msg.get('sender', 'Unknown')
                 content = msg.get('content', '')
 
+                # 区分 System 消息样式
                 if sender == "SYSTEM":
                     html += f"<p style='color: #888; text-align: center; font-size: 12px;'><i>[{local_time}] {content}</i></p>"
                 else:
@@ -847,13 +654,12 @@ class SocialPage(QWidget):
                 text = f"{prefix} {r['nickname']}: {r['word_count']}"
                 item = QListWidgetItem(text)
                 item.setForeground(QBrush(QColor(color)))
-                item.setData(Qt.ItemDataRole.UserRole, r['user_id'])  # 存储 ID 供右键使用
-
                 if r['reached_target']:
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
 
+                # 【新功能】显示成员头像
                 if r.get('avatar_data'):
                     try:
                         pix = QPixmap()
@@ -893,16 +699,6 @@ class SocialPage(QWidget):
 
     def _handle_group_error(self, data):
         msg = data.get('msg', STRINGS["msg_unknown_err"])
-
-        # 处理密码错误
-        if data.get("need_password"):
-            text, ok = QInputDialog.getText(self, "输入密码", "密码错误，请重新输入:", QLineEdit.EchoMode.Password)
-            if ok and text:
-                self.network.send_request({"type": "join_group", "group_id": data.get(
-                    "current_group_id") or self.group_list_widget.currentItem().data(Qt.ItemDataRole.UserRole),
-                                           "password": text.strip()})
-            return
-
         if "You are already in another group" in msg and 'current_group_id' in data:
             gid = data['current_group_id']
             reply = QMessageBox.question(self, STRINGS["warn_title"],
