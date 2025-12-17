@@ -76,6 +76,12 @@ class MainWindow(QWidget):
         self.monitor_thread.stats_updated.connect(self.float_window.update_data)
         self.pomo_update_signal.connect(self.float_window.update_timer)
 
+        # 【修复关键】添加自动同步定时器
+        # 每 10 秒尝试同步一次数据到服务器，确保排行榜实时更新
+        self.auto_sync_timer = QTimer(self)
+        self.auto_sync_timer.timeout.connect(self.sync_data_incrementally)
+        self.auto_sync_timer.start(10000)
+
         self.page_dashboard = None
         self.page_analytics = None
         self.page_social = None  # 在 setup_ui 中初始化
@@ -85,9 +91,6 @@ class MainWindow(QWidget):
         self.apply_theme()
         self.load_local_sources()
         self.monitor_thread.start()
-
-        if self.network:
-            self.network.message_received.connect(self.dispatch_network_message)
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -149,7 +152,6 @@ class MainWindow(QWidget):
         self.page_analytics = AnalyticsPage(self.network)
         self.content_stack.addWidget(self.page_analytics)
 
-        # 【修复 1.3】初始化 SocialPage，但 user_id 暂设为 0
         self.page_social = SocialPage(self.network, user_id=0)
         self.content_stack.addWidget(self.page_social)
 
@@ -324,9 +326,7 @@ class MainWindow(QWidget):
         username = data.get("username", "unknown")
         email = data.get("email", "")
 
-        # 设置基础数据（这是服务器已记录的今日字数）
         self.today_base_count = data.get("today_total", 0)
-        # 重置偏移量，因为我们刚登录，session_increment 还是 0
         self.daily_increment_offset = 0
 
         self.lbl_title.setText(f"Hi, {nickname}")
@@ -346,43 +346,36 @@ class MainWindow(QWidget):
         else:
             self.load_default_avatar()
 
-        # 【修复 1.4】确保 SocialPage 接收到 current_group 信息
         if self.page_social:
             self.page_social.set_user_id(self.user_id)
             current_group = data.get('current_group', {})
             if current_group:
-                # 恢复房间状态
                 self.page_social.restore_group_state(current_group)
             else:
-                # 修复 3：如果不在任何房间，确保刷新大厅列表
                 self.page_social.refresh_group_list()
-
-                # 无论是否在房间，都需要加载好友列表
             self.page_social.load_friends()
 
     def update_dashboard_stats(self, total_in_monitor, increment, wph):
         self.session_increment = increment
 
-        # 检查是否跨天
         now_date = QDate.currentDate()
         if now_date != self.current_report_date:
             print("[DateChange] New day detected! Resetting daily base.")
-            # 跨天了，服务器的 today_base_count 对于新的一天来说应该是 0
             self.today_base_count = 0
-            # 关键：我们需要把截至昨天的增量作为偏移量扣除
-            # 否则 increment 是从软件启动开始累计的，会把昨天的字数也算进今天
             self.daily_increment_offset = increment
-
             self.current_report_date = now_date
 
-        # 计算今日实际显示的字数：
-        # 服务器原有(0) + (当前总增量 - 今日起始时的总增量)
         real_today_increment = increment - self.daily_increment_offset
         daily_total = self.today_base_count + real_today_increment
 
         self.lbl_main_count.setText(str(daily_total))
         self.card_main.findChild(QLabel, "CardSub").setText(STRINGS["stat_session"].format(increment))
         self.lbl_speed.setText(str(wph))
+
+        # 【修复关键】如果本地字数变化较大（比如超过10个字），也立即触发同步
+        # 这样在拼字比赛时，排行榜能更快更新
+        if self.session_increment - self.last_synced_increment >= 10:
+            self.sync_data_incrementally()
 
     def on_nav_clicked(self, page_idx, btn):
         for b in self.nav_btns.values(): b.setChecked(False)
@@ -393,9 +386,7 @@ class MainWindow(QWidget):
             self.sync_data_incrementally()
             self.page_analytics.load_data()
         elif page_idx == 2 and self.page_social and self.user_id:
-            # 社交页被选中时，强制刷新一次好友列表和大厅（防止计时器失效或延迟）
             self.page_social.load_friends()
-            # 如果在房间内，会请求详情，否则会请求大厅列表
             if not self.page_social.current_group_id:
                 self.page_social.refresh_group_list()
 
@@ -405,13 +396,11 @@ class MainWindow(QWidget):
         delta = self.session_increment - self.last_synced_increment
         if delta > 0:
             print(f"[Sync] Sending incremental sync: +{delta}")
-            # 【关键修复】发送本地时间戳，让服务器知道这是几点产生的数据
             self.network.send_request({
                 "type": "sync_data",
                 "increment": delta,
                 "duration": 0,
-                "timestamp": time.time(),  # 发送客户端时间戳
-                # 【新增】明确告诉服务器，这是属于“哪一天”的数据（客户端本地日期）
+                "timestamp": time.time(),
                 "local_date": self.current_report_date.toString(Qt.DateFormat.ISODate)
             })
             self.last_synced_increment = self.session_increment
@@ -421,7 +410,6 @@ class MainWindow(QWidget):
         if rtype in ["analytics_data", "details_data"]:
             self.page_analytics.handle_response(data)
         elif self.page_social:
-            # 【修复 2】所有社交相关的消息都交给 SocialPage 处理
             self.page_social.handle_network_msg(data)
 
     def closeEvent(self, event):

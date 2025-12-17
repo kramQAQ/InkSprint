@@ -1,8 +1,8 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QListWidget, QLabel,
-                             QGraphicsDropShadowEffect, QListWidgetItem, QFrame, QLineEdit)
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QFont
-from .localization import STRINGS # 导入汉化配置
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QListWidget, QLabel, QPushButton, QHBoxLayout,
+                             QGraphicsDropShadowEffect, QListWidgetItem, QFrame, QLineEdit, QStackedWidget)
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize
+from PyQt6.QtGui import QColor, QBrush, QFont, QIcon
+from .localization import STRINGS  # 导入汉化配置
 
 
 class FloatGroupWindow(QWidget):
@@ -12,10 +12,11 @@ class FloatGroupWindow(QWidget):
     def __init__(self, parent_controller):
         super().__init__()
         self.controller = parent_controller
+        self.current_mode = "chat"  # chat or rank
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(300, 450)  # 稍微加高一点给输入框留位置
+        self.resize(300, 450)
 
         self.drag_pos = None
 
@@ -23,37 +24,60 @@ class FloatGroupWindow(QWidget):
 
     def setup_ui(self):
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(10, 10, 10, 10)  # 给阴影留空间
+        self.layout.setContentsMargins(10, 10, 10, 10)
 
         self.container = QFrame()
-        # 背景透明度 80% 的黑 -> rgba(0, 0, 0, 204)
+        # 背景透明度 80% 的黑
         self.container.setStyleSheet("""
             QFrame { background-color: rgba(0, 0, 0, 204); border-radius: 10px; border: 1px solid #555; }
-            QLabel { color: white; font-weight: bold; font-family: 'Segoe UI'; }
+            QLabel { color: white; font-weight: bold; font-family: 'Segoe UI'; border: none; background: transparent; }
             QTextEdit { background: transparent; border: none; color: white; font-size: 13px; font-family: 'Segoe UI'; }
             QListWidget { background: transparent; border: none; color: white; font-weight: bold; font-family: 'Segoe UI'; }
             QLineEdit { background: rgba(255, 255, 255, 0.15); color: white; border-radius: 5px; padding: 5px; selection-background-color: #555; }
+            QPushButton { background: transparent; color: #ccc; border: none; font-size: 14px; }
+            QPushButton:hover { color: white; }
         """)
 
         con_layout = QVBoxLayout(self.container)
         con_layout.setContentsMargins(10, 10, 10, 10)
 
-        # Header
+        # Header with Switch Button
+        header_layout = QHBoxLayout()
         self.lbl_title = QLabel(STRINGS["float_group_chat"])
-        self.lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_title.setStyleSheet("font-size: 14px; margin-bottom: 5px;")
-        con_layout.addWidget(self.lbl_title)
+        self.lbl_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        # Stacked widgets manually
+        # 【新功能】切换按钮
+        self.btn_switch = QPushButton("⇄ 切换")
+        self.btn_switch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_switch.clicked.connect(self.toggle_view)
+
+        self.btn_close = QPushButton("×")
+        self.btn_close.setFixedWidth(20)
+        self.btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_close.clicked.connect(self.close)
+
+        header_layout.addWidget(self.lbl_title)
+        header_layout.addStretch()
+        header_layout.addWidget(self.btn_switch)
+        header_layout.addWidget(self.btn_close)
+
+        con_layout.addLayout(header_layout)
+
+        # Stacked widgets for easy switching
+        self.stack = QStackedWidget()
+
+        # Page 1: Chat
         self.chat_view = QTextEdit()
         self.chat_view.setReadOnly(True)
+        self.stack.addWidget(self.chat_view)
 
+        # Page 2: Rank
         self.rank_view = QListWidget()
+        self.stack.addWidget(self.rank_view)
 
-        con_layout.addWidget(self.chat_view)
-        con_layout.addWidget(self.rank_view)
+        con_layout.addWidget(self.stack)
 
-        # Input Field (始终显示在底部，或者仅在聊天模式显示)
+        # Input Field
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText(STRINGS["chat_placeholder"])
         self.input_field.returnPressed.connect(self.on_send_msg)
@@ -68,18 +92,24 @@ class FloatGroupWindow(QWidget):
         shadow.setColor(QColor(0, 0, 0, 150))
         self.container.setGraphicsEffect(shadow)
 
+    def toggle_view(self):
+        if self.current_mode == "chat":
+            self.show_rank()
+        else:
+            self.show_chat()
+
     def show_chat(self):
+        self.current_mode = "chat"
         self.lbl_title.setText(STRINGS["float_group_chat"])
-        self.chat_view.show()
-        self.rank_view.hide()
-        self.input_field.show()  # 聊天模式显示输入框
+        self.stack.setCurrentWidget(self.chat_view)
+        self.input_field.show()
         self.show()
 
     def show_rank(self):
+        self.current_mode = "rank"
         self.lbl_title.setText(STRINGS["float_leaderboard"])
-        self.chat_view.hide()
-        self.rank_view.show()
-        self.input_field.hide()  # 排行榜模式隐藏输入框，保持界面整洁
+        self.stack.setCurrentWidget(self.rank_view)
+        self.input_field.hide()
         self.show()
 
     def update_chat(self, html):
@@ -94,12 +124,11 @@ class FloatGroupWindow(QWidget):
         self.rank_view.clear()
         for text, color_name in items:
             item = QListWidgetItem(text)
-            # Adjust colors for dark theme float window
             c = QColor("white")
             if color_name == "green":
-                c = QColor("#40C463")  # Green
+                c = QColor("#40C463")
             elif color_name == "orange":
-                c = QColor("#FFD700")  # Gold
+                c = QColor("#FFD700")
 
             item.setForeground(QBrush(c))
             self.rank_view.addItem(item)
@@ -120,6 +149,3 @@ class FloatGroupWindow(QWidget):
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_pos:
             self.move(event.globalPosition().toPoint() - self.drag_pos)
             event.accept()
-
-    def mouseDoubleClickEvent(self, event):
-        self.close()
