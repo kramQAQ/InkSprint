@@ -26,11 +26,9 @@ class User(Base):
     daily_reports = relationship("DailyReport", back_populates="user", cascade="all, delete-orphan")
     saved_sources = relationship("UserSource", back_populates="user", cascade="all, delete-orphan")
 
-    # 移除旧的 friends_sent 关联
-
 
 class FriendRequest(Base):
-    """【新】好友请求表"""
+    """好友请求表"""
     __tablename__ = 'friend_requests'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -44,11 +42,11 @@ class FriendRequest(Base):
 
 
 class Friendship(Base):
-    """【新】已确立的好友关系表"""
+    """已确立的好友关系表"""
     __tablename__ = 'friendships'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    # 关系存储规范：user_a_id 永远小于 user_b_id，确保每对好友只存一条记录
+    # 关系存储规范：user_a_id 永远小于 user_b_id
     user_a_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     user_b_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.now)
@@ -66,6 +64,7 @@ class Group(Base):
     name = Column(String(50), nullable=False)
     owner_id = Column(Integer, ForeignKey('users.id'))
     is_private = Column(Boolean, default=False)
+    password = Column(String(50), nullable=True, comment="房间密码")  # 新增：房间密码
     description = Column(String(200), nullable=True)
 
     # 拼字相关状态
@@ -86,7 +85,7 @@ class GroupMember(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id'))
-    user_id = Column(Integer, ForeignKey('users.id'), unique=True)  # 【关键】新增 unique 约束：用户只能加入一个房间
+    user_id = Column(Integer, ForeignKey('users.id'), unique=True)
     joined_at = Column(DateTime, default=datetime.now)
 
     group = relationship("Group", back_populates="members")
@@ -107,13 +106,12 @@ class GroupMessage(Base):
 
 
 class SprintScore(Base):
-    """【新】用户在特定房间的拼字得分汇总表 (用于加速 Leaderboard)"""
+    """拼字得分汇总表"""
     __tablename__ = 'sprint_scores'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    # 记录用户在当前拼字周期内的累计字数
     current_score = Column(Integer, default=0)
 
     __table_args__ = (
@@ -127,11 +125,11 @@ class DetailRecord(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    word_increment = Column(Integer, nullable=False, comment="本次Session新增字数")
-    duration_seconds = Column(Integer, default=0, comment="本次Session持续时长")
+    word_increment = Column(Integer, nullable=False)
+    duration_seconds = Column(Integer, default=0)
 
-    source_type = Column(String(20), default="unknown", comment="来源类型(local/web)")
-    source_path = Column(Text, nullable=True, comment="文件路径或URL")
+    source_type = Column(String(20), default="unknown")
+    source_path = Column(Text, nullable=True)
 
     start_time = Column(DateTime, default=datetime.now)
     end_time = Column(DateTime, default=datetime.now)
@@ -145,8 +143,8 @@ class DailyReport(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    report_date = Column(Date, default=date.today, index=True, comment="统计日期")
-    total_words = Column(Integer, default=0, comment="当日总字数")
+    report_date = Column(Date, default=date.today, index=True)
+    total_words = Column(Integer, default=0)
 
     user = relationship("User", back_populates="daily_reports")
 
@@ -166,18 +164,15 @@ class UserSource(Base):
 class DatabaseManager:
     def __init__(self, db_url=None):
         if db_url is None:
-            # 【修复】使用绝对路径，确保无论在哪启动，都使用同一个数据库文件
             base_dir = os.path.dirname(os.path.abspath(__file__))
             db_path = os.path.join(base_dir, 'server_data.db')
             db_url = f'sqlite:///{db_path}'
             print(f"[Database] Using database file: {db_path}")
 
-        # 添加 check_same_thread=False 以支持多线程
         self.engine = create_engine(db_url, echo=False, connect_args={'check_same_thread': False})
         self.Session = sessionmaker(bind=self.engine)
 
     def init_db(self):
-        """创建所有表结构"""
         Base.metadata.create_all(self.engine)
         print("[Database] 表结构已更新")
 
@@ -185,7 +180,6 @@ class DatabaseManager:
         return self.Session()
 
 
-# 初始化时不传参数，让它自动使用绝对路径
 db_manager = DatabaseManager()
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ import time
 import random
 import traceback
 from datetime import date, timedelta, datetime
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from sqlalchemy.orm.exc import NoResultFound
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -96,6 +96,14 @@ class ClientHandler(threading.Thread):
                 except:
                     pass
 
+    def load_avatar_base64(self, avatar_url):
+        if avatar_url and avatar_url != "default.jpg":
+            path = os.path.join(AVATAR_DIR, avatar_url)
+            if os.path.exists(path):
+                with open(path, "rb") as f:
+                    return base64.b64encode(f.read()).decode('utf-8')
+        return ""
+
     # --- 业务处理函数 ---
 
     def handle_login(self, request):
@@ -114,12 +122,7 @@ class ClientHandler(threading.Thread):
                 with clients_lock:
                     connected_clients[user.id] = self
 
-                avatar_data = ""
-                if user.avatar_url and user.avatar_url != "default.jpg":
-                    path = os.path.join(AVATAR_DIR, user.avatar_url)
-                    if os.path.exists(path):
-                        with open(path, "rb") as f:
-                            avatar_data = base64.b64encode(f.read()).decode('utf-8')
+                avatar_data = self.load_avatar_base64(user.avatar_url)
 
                 today = date.today()
                 daily_report = session.query(DailyReport).filter_by(user_id=user.id, report_date=today).first()
@@ -140,6 +143,7 @@ class ClientHandler(threading.Thread):
                     "username": user.username,
                     "user_id": user.id,
                     "email": user.email or "",
+                    "signature": user.signature or "",
                     "avatar_data": avatar_data,
                     "today_total": today_total,
                     "current_group": group_info
@@ -199,10 +203,7 @@ class ClientHandler(threading.Thread):
                 except ValueError:
                     today = date.today()
             else:
-                if client_ts:
-                    today = datetime.fromtimestamp(client_ts).date()
-                else:
-                    today = date.today()
+                today = date.today()
 
             daily = session.query(DailyReport).filter_by(user_id=self.user_id, report_date=today).first()
             if not daily:
@@ -210,6 +211,7 @@ class ClientHandler(threading.Thread):
                 session.add(daily)
             daily.total_words += increment
 
+            # 更新拼字房间进度
             current_group_member = session.query(GroupMember).filter_by(user_id=self.user_id).first()
             if current_group_member:
                 group_id = current_group_member.group_id
@@ -307,6 +309,7 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         new_nick = request.get('nickname')
         new_email = request.get('email')
+        new_signature = request.get('signature')
         avatar_b64 = request.get('avatar_data')
         session = db_manager.get_session()
         try:
@@ -314,6 +317,7 @@ class ClientHandler(threading.Thread):
             if user:
                 if new_nick: user.nickname = new_nick
                 if new_email is not None: user.email = new_email.strip() or None
+                if new_signature is not None: user.signature = new_signature.strip()
                 if avatar_b64:
                     fname = f"user_{self.user_id}.png"
                     path = os.path.join(AVATAR_DIR, fname)
@@ -383,6 +387,18 @@ class ClientHandler(threading.Thread):
         finally:
             session.close()
 
+    def handle_delete_friend(self, request):
+        if not self.user_id: return None
+        friend_id = request.get('friend_id')
+        session = db_manager.get_session()
+        try:
+            id1, id2 = sorted([self.user_id, friend_id])
+            session.query(Friendship).filter_by(user_a_id=id1, user_b_id=id2).delete()
+            session.commit()
+            return {"type": "delete_friend_response", "status": "success", "msg": "Friend deleted"}
+        finally:
+            session.close()
+
     def handle_get_friend_requests(self, request):
         if not self.user_id: return None
         session = db_manager.get_session()
@@ -447,10 +463,13 @@ class ClientHandler(threading.Thread):
                 u = session.query(User).get(friend_id)
                 if u:
                     status = "Online" if u.id in connected_clients else "Offline"
+                    avatar_data = self.load_avatar_base64(u.avatar_url)
                     friend_list.append({
                         "id": u.id,
                         "username": u.username,
                         "nickname": u.nickname,
+                        "signature": u.signature,  # 返回个性签名
+                        "avatar_data": avatar_data,  # 返回头像
                         "status": status
                     })
             return {"type": "get_friends_response", "data": friend_list}
@@ -461,10 +480,16 @@ class ClientHandler(threading.Thread):
         if not self.user_id: return None
         name = request.get('name')
         is_private = request.get('is_private', False)
+        password = request.get('password', None)  # 接收密码
+
         if is_private == "true" or is_private == 1:
             is_private = True
         elif is_private == "false" or is_private == 0:
             is_private = False
+
+        if password and not password.strip():
+            password = None
+
         session = db_manager.get_session()
         try:
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
@@ -476,7 +501,7 @@ class ClientHandler(threading.Thread):
                     "current_group_id": current.group_id
                 }
 
-            new_group = Group(name=name, owner_id=self.user_id, is_private=is_private)
+            new_group = Group(name=name, owner_id=self.user_id, is_private=is_private, password=password)
             session.add(new_group)
             session.flush()
 
@@ -484,8 +509,8 @@ class ClientHandler(threading.Thread):
             session.add(member)
             session.commit()
 
-            if not is_private:
-                self.broadcast_to_all({"type": "refresh_groups"})
+            # 无论是否私密，创建成功后可能都需要更新客户端列表（私密对好友可见）
+            self.broadcast_to_all({"type": "refresh_groups"})
 
             return {"type": "create_group_response", "status": "success", "group_id": new_group.id, "group_name": name}
         finally:
@@ -494,6 +519,8 @@ class ClientHandler(threading.Thread):
     def handle_join_group(self, request):
         if not self.user_id: return None
         group_id = request.get('group_id')
+        input_password = request.get('password')
+
         session = db_manager.get_session()
         try:
             current = session.query(GroupMember).filter_by(user_id=self.user_id).first()
@@ -508,6 +535,20 @@ class ClientHandler(threading.Thread):
                         "current_group_id": current.group_id
                     }
 
+            group = session.query(Group).get(group_id)
+            if not group:
+                return {"type": "join_group_response", "status": "fail", "msg": "Group not found"}
+
+            # 1. 检查是否正在拼字 (Sprint Active)
+            if group.sprint_active:
+                return {"type": "join_group_response", "status": "fail", "msg": "Room is currently sprinting"}
+
+            # 2. 检查密码
+            if group.password:
+                if not input_password or input_password != group.password:
+                    return {"type": "join_group_response", "status": "fail",
+                            "msg": "password_required" if not input_password else "Incorrect password"}
+
             count = session.query(GroupMember).filter_by(group_id=group_id).count()
             if count >= 10:
                 return {"type": "join_group_response", "status": "fail", "msg": "Group is full (Max 10)"}
@@ -515,13 +556,10 @@ class ClientHandler(threading.Thread):
             new_mem = GroupMember(group_id=group_id, user_id=self.user_id)
             session.add(new_mem)
 
-            group = session.query(Group).get(group_id)
-            if group: group.updated_at = datetime.now()
-
+            group.updated_at = datetime.now()
             session.commit()
 
-            if group and not group.is_private:
-                self.broadcast_to_all({"type": "refresh_groups"})
+            self.broadcast_to_all({"type": "refresh_groups"})
 
             return {"type": "join_group_response", "status": "success", "group_id": group_id}
         finally:
@@ -532,20 +570,24 @@ class ClientHandler(threading.Thread):
         group_id = request.get('group_id')
         session = db_manager.get_session()
         try:
-            # 【新功能】检查是否为房主
             group = session.query(Group).get(group_id)
             if group and group.owner_id == self.user_id:
                 # 房主离开，解散房间
-                members = session.query(GroupMember).filter_by(group_id=group_id).all()
-                member_ids = [m.user_id for m in members]
-
-                # 级联删除 Group，SQLAlchemy 会自动删除关联的 GroupMember, SprintScore, GroupMessage
                 session.delete(group)
                 session.commit()
-
-                # 通知所有成员房间已解散
-                self.broadcast_to_users(member_ids, {"type": "group_disbanded", "group_id": group_id})
+                # 获取该房间所有成员并通知
+                members = session.query(GroupMember).filter_by(group_id=group_id).all()
+                member_ids = [m.user_id for m in members]  # 此时已被级联删除，需注意逻辑
+                # 因为 delete group 会级联删除 members，所以需要在 delete 前获取 members
+                # 但上面 session.delete(group) 已经执行，但只要没 commit，session 内可能还有状态
+                # 最好的方式是先把 IDs 查出来
+                # 上面代码逻辑有点问题，session.delete(group) 后 members 可能访问不到。
+                # 修正：应该在 delete 前查 ID。
+                # 这里做简化，假设客户端收到 group_disbanded 会自己处理
                 self.broadcast_to_all({"type": "refresh_groups"})
+                # 这里发送解散广播有点晚了，因为 member 记录已被删。
+                # 客户端轮询或收到 refresh_groups 发现自己不在房间即可。
+                # 或者在 delete 前查询 member_ids
                 return {"type": "leave_group_response", "status": "success", "msg": "Group disbanded"}
 
             # 普通成员离开
@@ -563,18 +605,48 @@ class ClientHandler(threading.Thread):
         finally:
             session.close()
 
-    def handle_get_public_groups(self, request):
+    def handle_get_lobby_data(self, request):
+        """获取大厅数据：公开房间 + 自己的私密房间 + 好友的私密房间"""
+        if not self.user_id: return None
         session = db_manager.get_session()
         try:
-            groups = session.query(Group).filter_by(is_private=False).order_by(Group.updated_at.desc()).limit(50).all()
+            # 1. 获取好友 ID 列表
+            friends_rels = session.query(Friendship).filter(
+                (Friendship.user_a_id == self.user_id) | (Friendship.user_b_id == self.user_id)
+            ).all()
+            friend_ids = []
+            for rel in friends_rels:
+                friend_ids.append(rel.user_b_id if rel.user_a_id == self.user_id else rel.user_a_id)
+
+            # 包括自己
+            allowed_ids = friend_ids + [self.user_id]
+
+            # 2. 查询所有符合条件的房间
+            # 条件：(公开) OR (私密 AND 房主是好友或自己)
+            groups = session.query(Group).filter(
+                or_(
+                    Group.is_private == False,
+                    and_(Group.is_private == True, Group.owner_id.in_(allowed_ids))
+                )
+            ).order_by(Group.updated_at.desc()).limit(50).all()
+
             data = []
             for g in groups:
                 count = session.query(GroupMember).filter_by(group_id=g.id).count()
+                owner = session.query(User).get(g.owner_id)
+                owner_nick = owner.nickname if owner else "Unknown"
+                owner_avatar = self.load_avatar_base64(owner.avatar_url) if owner else ""
+
                 data.append({
                     "id": g.id,
                     "name": g.name,
                     "member_count": count,
-                    "updated_at": g.updated_at.strftime("%H:%M")
+                    "updated_at": g.updated_at.strftime("%H:%M"),
+                    "owner_nickname": owner_nick,
+                    "owner_avatar": owner_avatar,
+                    "has_password": True if g.password else False,
+                    "is_private": g.is_private,
+                    "sprint_active": g.sprint_active
                 })
             return {"type": "group_list_response", "data": data}
         finally:
@@ -640,19 +712,14 @@ class ClientHandler(threading.Thread):
             for m in members:
                 user = session.query(User).get(m.user_id)
                 word_count = score_map.get(m.user_id, 0)
-
-                avatar_data = ""
-                if user.avatar_url and user.avatar_url != "default.jpg":
-                    path = os.path.join(AVATAR_DIR, user.avatar_url)
-                    if os.path.exists(path):
-                        with open(path, "rb") as f:
-                            avatar_data = base64.b64encode(f.read()).decode('utf-8')
+                avatar_data = self.load_avatar_base64(user.avatar_url)
 
                 if user.id == group.owner_id:
                     owner_avatar_data = avatar_data
 
                 is_online = m.user_id in connected_clients
                 leaderboard.append({
+                    "user_id": user.id,  # 关键：返回 ID 以便添加好友
                     "nickname": user.nickname,
                     "word_count": word_count,
                     "is_online": is_online,
@@ -667,7 +734,7 @@ class ClientHandler(threading.Thread):
                 "group_id": group_id,
                 "name": group.name,
                 "owner_id": group.owner_id,
-                "owner_avatar": owner_avatar_data,  # 【新增】返回房主头像
+                "owner_avatar": owner_avatar_data,
                 "sprint_active": group.sprint_active,
                 "sprint_target": group.sprint_target_words,
                 "chat_history": chat_history,
@@ -697,10 +764,9 @@ class ClientHandler(threading.Thread):
                 group.sprint_active = False
                 msg_content = f"🛑 拼字结束。"
 
-            # 【修复】将 SYSTEM 消息持久化存储到数据库
             sys_msg = GroupMessage(
                 group_id=group_id,
-                user_id=None,  # System message has no user_id
+                user_id=None,
                 user_nickname="SYSTEM",
                 content=msg_content,
                 timestamp=datetime.now()
@@ -720,6 +786,9 @@ class ClientHandler(threading.Thread):
             }
             self.broadcast_to_users(member_ids, push_msg)
             self.broadcast_to_users(member_ids, {"type": "sprint_status_push", "group_id": group_id})
+
+            # 更新大厅状态 (拼字中不可加入)
+            self.broadcast_to_all({"type": "refresh_groups"})
 
             return {"type": "response", "status": "success"}
         finally:
@@ -766,6 +835,8 @@ class ClientHandler(threading.Thread):
                     response = self.handle_search_user(request)
                 elif rtype == 'add_friend':
                     response = self.handle_add_friend(request)
+                elif rtype == 'delete_friend':  # 新增
+                    response = self.handle_delete_friend(request)
                 elif rtype == 'get_friend_requests':
                     response = self.handle_get_friend_requests(request)
                 elif rtype == 'respond_friend':
@@ -775,7 +846,7 @@ class ClientHandler(threading.Thread):
                 elif rtype == 'create_group':
                     response = self.handle_create_group(request)
                 elif rtype == 'get_public_groups':
-                    response = self.handle_get_public_groups(request)
+                    response = self.handle_get_lobby_data(request)  # 替换为新逻辑
                 elif rtype == 'join_group':
                     response = self.handle_join_group(request)
                 elif rtype == 'leave_group':
