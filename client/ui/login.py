@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QIntValidator
 from .theme import ThemeManager
 from .localization import STRINGS  # 导入汉化配置
+from .config import Config  # 导入配置
 
 
 class LoginWindow(QWidget):
@@ -23,6 +24,9 @@ class LoginWindow(QWidget):
 
         self.is_night = False
         self.current_theme = ThemeManager.get_theme(self.is_night)
+
+        # 加载配置中的字体，默认 Microsoft YaHei
+        self.current_font = Config.get("font_family", "Microsoft YaHei")
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -295,13 +299,17 @@ class LoginWindow(QWidget):
 
         close_btn_color = "#E4E4E7" if t["name"] == "dark" else "#000000"
 
+        # 【修改】加入中文黑体后备 (Fallback)
         style = f"""
-            LoginWindow {{ background: transparent; }}
+            LoginWindow {{ 
+                background: transparent; 
+                font-family: '{self.current_font}', 'Microsoft YaHei', 'SimHei', 'PingFang SC', sans-serif; 
+            }}
             QFrame#LoginCard {{ background-color: {t['card_bg']}; border-radius: 20px; }}
 
             QLabel {{ color: {t['text_main']}; }}
-            QLabel#Logo {{ font-family: 'Segoe UI'; font-size: 28px; font-weight: 800; color: {t['text_main']}; }}
-            QLabel#Slogan {{ font-family: 'Segoe UI'; font-size: 14px; color: {t['accent']}; letter-spacing: 2px; }}
+            QLabel#Logo {{ font-size: 28px; font-weight: 800; color: {t['text_main']}; }}
+            QLabel#Slogan {{ font-size: 14px; color: {t['accent']}; letter-spacing: 2px; }}
             QLabel#PageHeader {{ font-size: 18px; font-weight: bold; color: {t['text_sub']}; margin-bottom: 10px; }}
 
             QLineEdit {{ 

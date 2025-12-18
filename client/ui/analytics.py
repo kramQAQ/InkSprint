@@ -1,10 +1,11 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QPushButton, QButtonGroup, QScrollArea, QTableWidget,
-                             QTableWidgetItem, QHeaderView, QDialog)
+                             QTableWidgetItem, QHeaderView, QDialog, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt, QDateTime, QDate, QTimer
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont
 import datetime
-from .localization import STRINGS  # 导入汉化配置
+import csv
+from .localization import STRINGS
 
 
 class HeatmapWidget(QWidget):
@@ -14,16 +15,27 @@ class HeatmapWidget(QWidget):
         super().__init__()
         self.setFixedHeight(140)
         self.data = {}
+        self.text_color = QColor("#333")  # 默认文字颜色
+        self.is_dark = False  # 明确的主题模式标志
 
     def set_data(self, data):
         self.data = data
+        self.update()
+
+    def set_text_color(self, color):
+        """设置文字颜色"""
+        self.text_color = QColor(color)
+        self.update()
+
+    def set_theme_mode(self, is_dark):
+        """明确设置是否为深色模式"""
+        self.is_dark = is_dark
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 颜色分级
         colors = [
             QColor("#EBEDF0"),  # 0
             QColor("#9BE9A8"),  # 1-499
@@ -32,11 +44,13 @@ class HeatmapWidget(QWidget):
             QColor("#216E39")  # 3000+
         ]
 
-        # 【关键】每次重绘都获取实时的今天，确保跨天后格子能往后推
+        # 修复：明确根据黑夜模式标志调整基础色，而不是猜测文字亮度
+        if self.is_dark:
+            colors[0] = QColor("#3F3F46")  # 深灰色底
+
         today = datetime.date.today()
         one_year_ago = today - datetime.timedelta(days=365)
 
-        # 计算起始位置（使得最左侧是当前星期）
         start_date = one_year_ago - datetime.timedelta(days=one_year_ago.weekday() + 1)
         if start_date.weekday() != 6:
             start_date = one_year_ago - datetime.timedelta(days=(one_year_ago.weekday() + 1) % 7)
@@ -71,7 +85,7 @@ class HeatmapWidget(QWidget):
                 painter.drawRoundedRect(x, y, cell_size, cell_size, 2, 2)
 
                 if row == 0 and current_date.day <= 7:
-                    painter.setPen(QPen(QColor("#777")))
+                    painter.setPen(QPen(self.text_color))  # 使用适配颜色
                     painter.drawText(x, 15, current_date.strftime("%b"))
 
 
@@ -84,6 +98,14 @@ class SimpleChartWidget(QWidget):
         self.mode = "Week"
         self.data = {}
         self.accent_color = QColor("#9DC88D")
+        self.text_color = QColor("#555")  # 默认
+        self.line_color = QColor("#CCCCCC")  # 默认
+
+    def set_colors(self, accent, text, line):
+        self.accent_color = QColor(accent)
+        self.text_color = QColor(text)
+        self.line_color = QColor(line)
+        self.update()
 
     def set_data(self, labels, values, mode):
         self.mode = mode
@@ -98,7 +120,7 @@ class SimpleChartWidget(QWidget):
         h = self.height()
         padding = 40
 
-        painter.setPen(QPen(QColor("#CCCCCC"), 1))
+        painter.setPen(QPen(self.line_color, 1))
         painter.drawLine(padding, h - padding, w - padding, h - padding)
 
         if not self.data.get("values"): return
@@ -120,9 +142,10 @@ class SimpleChartWidget(QWidget):
             y = h - padding - bar_h
             bar_w = step_x * 0.6
 
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(int(x), int(y), int(bar_w), int(bar_h), 4, 4)
 
-            painter.setPen(QPen(QColor("#555")))
+            painter.setPen(QPen(self.text_color))
             painter.drawText(int(x), int(y) - 5, int(bar_w), 20, Qt.AlignmentFlag.AlignCenter, str(val))
 
             painter.drawText(int(x - 10), int(h - padding + 5), int(bar_w + 20), 20, Qt.AlignmentFlag.AlignCenter,
@@ -142,20 +165,15 @@ class AnalyticsPage(QWidget):
         layout.setSpacing(20)
 
         top_bar = QHBoxLayout()
-        lbl_title = QLabel(STRINGS["analytics_title_header"])
-        lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
-        top_bar.addWidget(lbl_title)
+        self.lbl_title = QLabel(STRINGS["analytics_title_header"])
+        # Initial style, will be overridden by apply_theme
+        self.lbl_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
+        top_bar.addWidget(self.lbl_title)
 
-        # 【新增】刷新按钮
         self.btn_refresh = QPushButton("🔄")
         self.btn_refresh.setFixedSize(35, 35)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_refresh.setToolTip("刷新数据 (Refresh)")
-        self.btn_refresh.setStyleSheet("""
-            QPushButton { border: 1px solid #ddd; border-radius: 5px; background: white; font-size: 16px; }
-            QPushButton:hover { background-color: #f0f0f0; }
-            QPushButton:pressed { background-color: #e0e0e0; }
-        """)
         self.btn_refresh.clicked.connect(self.load_data)
         top_bar.addWidget(self.btn_refresh)
 
@@ -180,9 +198,9 @@ class AnalyticsPage(QWidget):
         layout.addWidget(self.chart)
 
         layout.addSpacing(20)
-        lbl_contrib = QLabel(STRINGS["graph_title"])
-        lbl_contrib.setStyleSheet("font-size: 16px; font-weight: bold; color: #555;")
-        layout.addWidget(lbl_contrib)
+        self.lbl_contrib = QLabel(STRINGS["graph_title"])
+        self.lbl_contrib.setStyleSheet("font-size: 16px; font-weight: bold; color: #555;")
+        layout.addWidget(self.lbl_contrib)
 
         self.heatmap = HeatmapWidget()
         layout.addWidget(self.heatmap)
@@ -192,20 +210,48 @@ class AnalyticsPage(QWidget):
         self.btn_details = QPushButton(STRINGS["btn_view_details"])
         self.btn_details.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_details.setFixedHeight(40)
-        self.btn_details.setStyleSheet("""
-            QPushButton { background-color: #9DC88D; color: white; border-radius: 8px; font-weight: bold; padding: 0 20px; }
-            QPushButton:hover { background-color: #88B57B; }
-        """)
         self.btn_details.clicked.connect(self.show_details_dialog)
         btn_layout.addWidget(self.btn_details)
         layout.addLayout(btn_layout)
+
+    def apply_theme(self, t):
+        """应用黑夜/白天模式"""
+        # 1. 标题和文字颜色
+        self.lbl_title.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {t['text_main']};")
+        self.lbl_contrib.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {t['text_sub']};")
+
+        # 2. 按钮样式 (普通)
+        btn_style = f"""
+            QPushButton {{ 
+                border: 1px solid {t['border']}; 
+                border-radius: 5px; 
+                background: {t['card_bg']}; 
+                color: {t['text_main']};
+                font-size: 14px; 
+            }}
+            QPushButton:hover {{ background-color: {t['input_bg']}; }}
+            QPushButton:checked {{ background-color: {t['accent']}; color: white; border: none; }}
+        """
+        self.btn_refresh.setStyleSheet(btn_style)
+        for btn in self.mode_btns.values():
+            btn.setStyleSheet(btn_style)
+
+        # 3. 详情按钮 (主题色)
+        self.btn_details.setStyleSheet(f"""
+            QPushButton {{ background-color: {t['accent']}; color: white; border-radius: 8px; font-weight: bold; padding: 0 20px; }}
+            QPushButton:hover {{ background-color: {t['accent_hover']}; }}
+        """)
+
+        # 4. 图表重绘
+        self.chart.set_colors(t['accent'], t['text_main'], t['border'])
+        self.heatmap.set_text_color(t['text_sub'])
+        # 关键修复：传递 explicitly 的明暗模式标志
+        self.heatmap.set_theme_mode(t['name'] == 'dark')
 
     def load_data(self):
         if self.network:
             print("[Analytics] Manually refreshing data...")
             self.network.send_request({"type": "get_analytics"})
-
-            # 简单的禁用动画，防止连点
             self.btn_refresh.setEnabled(False)
             QTimer.singleShot(1000, lambda: self.btn_refresh.setEnabled(True))
 
@@ -213,18 +259,14 @@ class AnalyticsPage(QWidget):
         if data.get("type") == "analytics_data":
             self.full_heatmap_data = data.get("heatmap", {})
             self.heatmap.set_data(self.full_heatmap_data)
-
-            # 刷新当前选中的图表
             mode = "Week"
             if self.mode_btns["Month"].isChecked(): mode = "Month"
             if self.mode_btns["Year"].isChecked(): mode = "Year"
             self.update_chart_view(mode)
-
         elif data.get("type") == "details_data":
             self.open_details_dialog(data.get("data", []))
 
     def update_chart_view(self, mode):
-        # 【关键】使用 datetime.date.today() 获取当前实时日期
         today = datetime.date.today()
         labels = []
         values = []
@@ -264,7 +306,9 @@ class AnalyticsPage(QWidget):
         dlg = QDialog(self)
         dlg.setWindowTitle(STRINGS["dialog_details_title"])
         dlg.resize(500, 400)
+
         layout = QVBoxLayout(dlg)
+
         table = QTableWidget()
         table.setColumnCount(3)
         table.setHorizontalHeaderLabels([STRINGS["col_time"], STRINGS["col_added"], STRINGS["col_duration"]])
@@ -275,4 +319,38 @@ class AnalyticsPage(QWidget):
             table.setItem(i, 1, QTableWidgetItem(f"+{row['increment']}"))
             table.setItem(i, 2, QTableWidgetItem(str(row['duration'])))
         layout.addWidget(table)
+
+        # 新增：导出按钮
+        btn_export = QPushButton("💾 导出 CSV / Export to CSV")
+        # 设置简单样式
+        btn_export.setStyleSheet("""
+            QPushButton { background-color: #eee; border: 1px solid #ccc; border-radius: 5px; padding: 8px; }
+            QPushButton:hover { background-color: #ddd; }
+        """)
+        btn_export.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_export.clicked.connect(lambda: self.export_records(records))
+        layout.addWidget(btn_export)
+
         dlg.exec()
+
+    def export_records(self, records):
+        """将记录导出为本地 CSV 文件"""
+        if not records:
+            QMessageBox.information(self, STRINGS["warn_title"], "没有数据可导出 / No data to export")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save CSV", "ink_records.csv", "CSV Files (*.csv)")
+        if file_path:
+            try:
+                # 使用 utf-8-sig 以便 Excel 正确识别中文
+                with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.writer(f)
+                    # 写入表头
+                    writer.writerow(["Time", "Increment (Words)", "Duration (Seconds)"])
+                    # 写入数据
+                    for r in records:
+                        writer.writerow([r['time'], r['increment'], r['duration']])
+
+                QMessageBox.information(self, STRINGS["success_title"], f"导出成功！\nSaved to: {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, STRINGS["error_title"], f"导出失败: {str(e)}")

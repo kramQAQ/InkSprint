@@ -12,47 +12,19 @@ from .float_group_window import FloatGroupWindow
 from .localization import STRINGS
 
 
-class FlowLayout(QGridLayout):
-    """简单的流式布局 (Grid based)"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.items_list = []
-
-    def add_widget(self, widget):
-        self.items_list.append(widget)
-        self.reflow()
-
-    def clear_widgets(self):
-        for w in self.items_list:
-            w.setParent(None)
-            w.deleteLater()
-        self.items_list = []
-
-    def reflow(self, width=None):
-        # 简单实现：假定每行2列或3列，取决于宽度
-        # 这里简化为固定列数，自适应宽度
-        cols = 2
-        for i, w in enumerate(self.items_list):
-            row = i // cols
-            col = i % cols
-            self.addWidget(w, row, col)
-
-
 class FriendCard(QFrame):
     """好友卡片组件"""
     delete_clicked = pyqtSignal(int, str)  # id, name
 
-    def __init__(self, data):
+    def __init__(self, data, theme):
         super().__init__()
         self.data = data
+        self.theme = theme
         self.setup_ui()
 
     def setup_ui(self):
-        self.setStyleSheet("""
-            FriendCard { background-color: white; border-radius: 10px; border: 1px solid #eee; }
-            FriendCard:hover { background-color: #f9f9f9; border: 1px solid #ddd; }
-        """)
+        self.update_style()
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(15)
@@ -70,34 +42,52 @@ class FriendCard(QFrame):
         info_layout.setSpacing(2)
 
         name_layout = QHBoxLayout()
-        lbl_nick = QLabel(self.data['nickname'])
-        lbl_nick.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
-        lbl_id = QLabel(f"@{self.data['username']}")
-        lbl_id.setStyleSheet("color: #888; font-size: 12px;")
-        name_layout.addWidget(lbl_nick)
-        name_layout.addWidget(lbl_id)
+        self.lbl_nick = QLabel(self.data['nickname'])
+        self.lbl_id = QLabel(f"@{self.data['username']}")
+
+        name_layout.addWidget(self.lbl_nick)
+        name_layout.addWidget(self.lbl_id)
         name_layout.addStretch()
 
-        lbl_sig = QLabel(self.data.get('signature') or "No signature")
-        lbl_sig.setStyleSheet("color: #666; font-style: italic; font-size: 13px;")
+        self.lbl_sig = QLabel(self.data.get('signature') or "No signature")
 
         info_layout.addLayout(name_layout)
-        info_layout.addWidget(lbl_sig)
+        info_layout.addWidget(self.lbl_sig)
         layout.addLayout(info_layout)
 
         # 状态
         status_color = "#2ecc71" if self.data['status'] == 'Online' else "#95a5a6"
         lbl_status = QLabel("●")
-        lbl_status.setStyleSheet(f"color: {status_color}; font-size: 12px;")
+        lbl_status.setStyleSheet(f"color: {status_color}; font-size: 12px; background: transparent;")
         layout.addWidget(lbl_status)
+
+        self.apply_text_style()
+
+    def update_style(self):
+        t = self.theme
+        self.setStyleSheet(f"""
+            FriendCard {{ background-color: {t['card_bg']}; border-radius: 10px; border: 1px solid {t['border']}; }}
+            FriendCard:hover {{ border: 1px solid {t['accent']}; }}
+        """)
+
+    def apply_text_style(self):
+        t = self.theme
+        self.lbl_nick.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {t['text_main']}; background: transparent;")
+        self.lbl_id.setStyleSheet(f"color: {t['text_sub']}; font-size: 12px; background: transparent;")
+        self.lbl_sig.setStyleSheet(
+            f"color: {t['text_sub']}; font-style: italic; font-size: 13px; background: transparent;")
+
+    def set_theme(self, theme):
+        self.theme = theme
+        self.update_style()
+        self.apply_text_style()
 
     def load_avatar(self, b64_data):
         if b64_data:
             try:
                 pix = QPixmap()
                 pix.loadFromData(base64.b64decode(b64_data))
-
-                # 圆形遮罩
                 size = 50
                 rounded = QPixmap(size, size)
                 rounded.fill(Qt.GlobalColor.transparent)
@@ -110,7 +100,6 @@ class FriendCard(QFrame):
                                    pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                               Qt.TransformationMode.SmoothTransformation))
                 painter.end()
-
                 self.lbl_avatar.setPixmap(rounded)
             except:
                 pass
@@ -127,36 +116,34 @@ class RoomCard(QFrame):
     """房间卡片组件"""
     join_clicked = pyqtSignal(int, bool)  # id, has_password
 
-    def __init__(self, data):
+    def __init__(self, data, theme):
         super().__init__()
         self.data = data
+        self.theme = theme
         self.setup_ui()
 
     def setup_ui(self):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            RoomCard { background-color: white; border-radius: 12px; border: 1px solid #e0e0e0; }
-            RoomCard:hover { background-color: #fbfbfb; border: 1px solid #9DC88D; }
-        """)
+        self.update_style()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(8)
 
         # Top: Name + Lock/Private
         top_layout = QHBoxLayout()
-        lbl_name = QLabel(self.data['name'])
-        lbl_name.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
-        top_layout.addWidget(lbl_name)
+        self.lbl_name = QLabel(self.data['name'])
+        top_layout.addWidget(self.lbl_name)
         top_layout.addStretch()
 
         if self.data.get('is_private'):
-            lbl_priv = QLabel("🔒")  # 私密图标
-            lbl_priv.setToolTip("Private Room")
+            lbl_priv = QLabel("🔒")
+            lbl_priv.setStyleSheet("background: transparent; color: #888;")
             top_layout.addWidget(lbl_priv)
 
         if self.data.get('has_password'):
-            lbl_lock = QLabel("🔑")  # 密码锁图标
-            lbl_lock.setToolTip("Password Protected")
+            lbl_lock = QLabel("🔑")
+            lbl_lock.setStyleSheet("background: transparent; color: #888;")
             top_layout.addWidget(lbl_lock)
 
         layout.addLayout(top_layout)
@@ -175,11 +162,10 @@ class RoomCard(QFrame):
             except:
                 pass
 
-        lbl_owner = QLabel(self.data['owner_nickname'])
-        lbl_owner.setStyleSheet("color: #7f8c8d; font-size: 13px;")
+        self.lbl_owner = QLabel(self.data['owner_nickname'])
 
         mid_layout.addWidget(lbl_owner_av)
-        mid_layout.addWidget(lbl_owner)
+        mid_layout.addWidget(self.lbl_owner)
         mid_layout.addStretch()
         layout.addLayout(mid_layout)
 
@@ -187,18 +173,16 @@ class RoomCard(QFrame):
         bot_layout = QHBoxLayout()
 
         count = self.data['member_count']
-        lbl_count = QLabel(f"👥 {count}/10")
-        lbl_count.setStyleSheet("color: #7f8c8d; font-size: 12px;")
+        self.lbl_count = QLabel(f"👥 {count}/10")
 
-        bot_layout.addWidget(lbl_count)
+        bot_layout.addWidget(self.lbl_count)
         bot_layout.addStretch()
 
         if self.data.get('sprint_active'):
             lbl_status = QLabel("🔥 SPRINTING")
             lbl_status.setStyleSheet(
                 "color: white; background: #e74c3c; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px;")
-            self.setEnabled(False)  # Disable click
-            self.setStyleSheet("RoomCard { background-color: #f0f0f0; border-radius: 12px; border: 1px solid #ddd; }")
+            self.setEnabled(False)
             bot_layout.addWidget(lbl_status)
         else:
             lbl_status = QLabel("🟢 WAITING")
@@ -207,6 +191,30 @@ class RoomCard(QFrame):
             bot_layout.addWidget(lbl_status)
 
         layout.addLayout(bot_layout)
+        self.apply_text_style()
+
+    def update_style(self):
+        t = self.theme
+        if self.data.get('sprint_active'):
+            self.setStyleSheet(
+                f"RoomCard {{ background-color: {t['input_bg']}; border-radius: 12px; border: 1px solid {t['border']}; }}")
+        else:
+            self.setStyleSheet(f"""
+                RoomCard {{ background-color: {t['card_bg']}; border-radius: 12px; border: 1px solid {t['border']}; }}
+                RoomCard:hover {{ border: 1px solid {t['accent']}; }}
+             """)
+
+    def apply_text_style(self):
+        t = self.theme
+        self.lbl_name.setStyleSheet(
+            f"font-size: 16px; font-weight: bold; color: {t['text_main']}; background: transparent;")
+        self.lbl_owner.setStyleSheet(f"color: {t['text_sub']}; font-size: 13px; background: transparent;")
+        self.lbl_count.setStyleSheet(f"color: {t['text_sub']}; font-size: 12px; background: transparent;")
+
+    def set_theme(self, theme):
+        self.theme = theme
+        self.update_style()
+        self.apply_text_style()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
@@ -219,38 +227,27 @@ class SocialPage(QWidget):
         self.network = network_manager
         self.my_user_id = user_id
 
+        # 默认主题，稍后会被 MainWindow 覆盖
+        self.current_theme = {
+            "name": "light", "window_bg": "#F3F4F6", "card_bg": "#FFFFFF",
+            "text_main": "#374151", "text_sub": "#9CA3AF", "accent": "#9DC88D",
+            "input_bg": "#F9FAFB", "border": "#E5E7EB", "accent_hover": "#88B57B"
+        }
+
         self.current_group_id = None
         self.is_group_owner = False
         self.current_group_name = None
-
         self.float_group_win = None
-
-        # 【新增】用于存储因“已在房间中”而失败的创建请求，以便在退出旧房间后自动重试
         self.pending_create_payload = None
-
-        # UI Elements
-        self.lobby_scroll = None
-        self.lobby_layout = None  # The FlowLayout
-        self.friend_scroll = None
-        self.friend_layout = None  # QVBoxLayout for friend cards
-
-        self.room_widget = None
-        self.chat_display = None
-        self.rank_list = None
-        self.sprint_ctrl_frame = None
-        self.lbl_room_name = None
-        self.lbl_sprint_status = None
-        self.lbl_owner_avatar = None
-        self.btn_friend_requests = None
 
         self.setup_ui()
 
         self.update_timer = QTimer(self)
-        self.update_timer.setInterval(5000)  # 房间内轮询加快
+        self.update_timer.setInterval(5000)
         self.update_timer.timeout.connect(self.refresh_current_group_data)
 
         self.list_timer = QTimer(self)
-        self.list_timer.setInterval(30000)  # 列表轮询
+        self.list_timer.setInterval(30000)
         self.list_timer.timeout.connect(self.refresh_group_list)
         if self.my_user_id > 0:
             self.list_timer.start()
@@ -276,9 +273,8 @@ class SocialPage(QWidget):
         layout.setSpacing(10)
 
         # --- Top Switch Buttons ---
-        top_bar = QFrame()
-        top_bar.setStyleSheet("background: transparent;")
-        top_layout = QHBoxLayout(top_bar)
+        self.top_bar = QFrame()
+        top_layout = QHBoxLayout(self.top_bar)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
@@ -291,26 +287,11 @@ class SocialPage(QWidget):
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setFixedHeight(45)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    border: none;
-                    background-color: transparent;
-                    font-weight: bold;
-                    font-size: 16px;
-                    border-bottom: 3px solid transparent;
-                    color: #888;
-                }
-                QPushButton:checked {
-                    color: #9DC88D;
-                    border-bottom: 3px solid #9DC88D;
-                }
-                QPushButton:hover { color: #666; }
-            """)
             self.btn_group.addButton(btn, idx)
             top_layout.addWidget(btn)
             btn.clicked.connect(lambda _, i=idx: self.main_stack.setCurrentIndex(i))
 
-        layout.addWidget(top_bar)
+        layout.addWidget(self.top_bar)
 
         self.main_stack = QStackedWidget()
         self.main_stack.addWidget(self.create_groups_tab())
@@ -319,6 +300,78 @@ class SocialPage(QWidget):
 
         self.btn_tab_groups.setChecked(True)
         self.main_stack.setCurrentIndex(0)
+
+    def apply_theme(self, t):
+        self.current_theme = t
+
+        # 1. Top Bar Buttons
+        btn_style = f"""
+            QPushButton {{
+                border: none;
+                background-color: transparent;
+                font-weight: bold;
+                font-size: 16px;
+                border-bottom: 3px solid transparent;
+                color: {t['text_sub']};
+            }}
+            QPushButton:checked {{
+                color: {t['accent']};
+                border-bottom: 3px solid {t['accent']};
+            }}
+            QPushButton:hover {{ color: {t['text_main']}; }}
+        """
+        self.btn_tab_groups.setStyleSheet(btn_style)
+        self.btn_tab_friends.setStyleSheet(btn_style)
+
+        # 2. Controls & Inputs
+        input_style = f"""
+            QLineEdit {{ background-color: {t['input_bg']}; border: 1px solid {t['border']}; border-radius: 5px; padding: 0 10px; color: {t['text_main']}; }}
+            QLineEdit:focus {{ border: 1px solid {t['accent']}; }}
+        """
+        btn_ctrl_style = f"""
+            QPushButton {{ background-color: {t['card_bg']}; border: 1px solid {t['border']}; border-radius: 5px; padding: 5px 15px; color: {t['text_main']}; }}
+            QPushButton:hover {{ background-color: {t['input_bg']}; }}
+        """
+
+        self.search_input.setStyleSheet(input_style)
+        self.btn_search.setStyleSheet(btn_ctrl_style)
+        self.btn_friend_requests.setStyleSheet(btn_ctrl_style)
+        self.btn_refresh_friends.setStyleSheet(btn_ctrl_style)
+
+        self.btn_create_group.setStyleSheet(btn_ctrl_style)
+        self.btn_refresh_lobby.setStyleSheet(btn_ctrl_style)
+
+        # 3. Room View
+        self.room_card.setStyleSheet(f"QFrame {{ background: {t['card_bg']}; border-radius: 15px; }}")
+        self.lbl_room_name.setStyleSheet(
+            f"font-size: 20px; font-weight: 800; color: {t['text_main']}; background: transparent;")
+
+        # 4. Chat Area
+        self.chat_display.setStyleSheet(
+            f"background: {t['input_bg']}; border: 1px solid {t['border']}; border-radius: 8px; padding: 5px; color: {t['text_main']};")
+        self.chat_input.setStyleSheet(
+            f"background: {t['input_bg']}; border: 1px solid {t['border']}; border-radius: 20px; padding: 0 15px; color: {t['text_main']};")
+
+        # 5. Sprint Control Frame
+        self.sprint_ctrl_frame.setStyleSheet(f"background: {t['input_bg']}; border-radius: 10px; padding: 10px;")
+        self.lbl_leaderboard.setStyleSheet(f"color: {t['text_main']};")
+        self.lbl_owner_ctrl.setStyleSheet(
+            f"color: {t['text_sub']}; font-size: 12px; font-weight: bold; background: transparent;")
+
+        # 6. Update all existing cards
+        for i in range(self.friend_layout.count()):
+            item = self.friend_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().set_theme(t)
+
+        for i in range(self.lobby_layout.count()):
+            item = self.lobby_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().set_theme(t)
+
+        # 7. Rank list style
+        self.rank_list.setStyleSheet(
+            f"QListWidget {{ background: transparent; border: none; color: {t['text_main']}; }} QListWidget::item {{ padding: 5px; }} QListWidget::item:hover {{ background: {t['input_bg']}; }}")
 
     # ---------------- FRIENDS TAB ----------------
     def create_friends_tab(self):
@@ -332,32 +385,23 @@ class SocialPage(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText(STRINGS["search_placeholder"])
         self.search_input.setFixedHeight(35)
-        self.search_input.setStyleSheet("border-radius: 5px; border: 1px solid #ddd; padding: 0 10px;")
 
-        btn_style = """
-            QPushButton { background-color: white; border: 1px solid #ddd; border-radius: 5px; padding: 5px 15px; }
-            QPushButton:hover { background-color: #f5f5f5; }
-        """
-
-        btn_search = QPushButton(STRINGS["btn_search_user"])
-        btn_search.clicked.connect(self.search_user_to_add)
-        btn_search.setStyleSheet(btn_style)
+        self.btn_search = QPushButton(STRINGS["btn_search_user"])
+        self.btn_search.clicked.connect(self.search_user_to_add)
 
         self.btn_friend_requests = QPushButton(STRINGS["btn_friend_reqs"])
         self.btn_friend_requests.clicked.connect(self.show_friend_requests)
-        self.btn_friend_requests.setStyleSheet(btn_style)
 
-        btn_refresh = QPushButton(STRINGS["btn_refresh_list"])
-        btn_refresh.clicked.connect(self.load_friends)
-        btn_refresh.setStyleSheet(btn_style)
+        self.btn_refresh_friends = QPushButton(STRINGS["btn_refresh_list"])
+        self.btn_refresh_friends.clicked.connect(self.load_friends)
 
         top.addWidget(self.search_input)
-        top.addWidget(btn_search)
+        top.addWidget(self.btn_search)
         top.addWidget(self.btn_friend_requests)
-        top.addWidget(btn_refresh)
+        top.addWidget(self.btn_refresh_friends)
         layout.addLayout(top)
 
-        # Friend List (Scroll Area with VBox)
+        # Friend List
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -398,23 +442,19 @@ class SocialPage(QWidget):
         lobby_layout.setSpacing(15)
 
         l_top = QHBoxLayout()
-        btn_create = QPushButton(STRINGS["btn_create_group"])
-        btn_create.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_create.clicked.connect(self.show_create_group_dialog)
+        self.btn_create_group = QPushButton(STRINGS["btn_create_group"])
+        self.btn_create_group.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_create_group.clicked.connect(self.show_create_group_dialog)
 
-        btn_refresh_g = QPushButton(STRINGS["btn_refresh_lobby"])
-        btn_refresh_g.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_refresh_g.clicked.connect(self.refresh_group_list)
+        self.btn_refresh_lobby = QPushButton(STRINGS["btn_refresh_lobby"])
+        self.btn_refresh_lobby.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_refresh_lobby.clicked.connect(self.refresh_group_list)
 
-        for btn in [btn_create, btn_refresh_g]:
-            btn.setFixedHeight(40)
-            btn.setStyleSheet("""
-                QPushButton { background-color: white; border: 1px solid #ddd; border-radius: 8px; font-weight: bold; color: #555; padding: 0 15px; }
-                QPushButton:hover { background-color: #f0f0f0; color: #333; }
-            """)
+        self.btn_create_group.setFixedHeight(40)
+        self.btn_refresh_lobby.setFixedHeight(40)
 
-        l_top.addWidget(btn_create)
-        l_top.addWidget(btn_refresh_g)
+        l_top.addWidget(self.btn_create_group)
+        l_top.addWidget(self.btn_refresh_lobby)
         l_top.addStretch()
         lobby_layout.addLayout(l_top)
 
@@ -461,16 +501,15 @@ class SocialPage(QWidget):
         room_layout.setSpacing(15)
 
         # Room Card Container
-        room_card = QFrame()
-        room_card.setStyleSheet("QFrame { background: white; border-radius: 15px; }")
-        room_card_layout = QVBoxLayout(room_card)
+        self.room_card = QFrame()
+        room_card_layout = QVBoxLayout(self.room_card)
         room_card_layout.setContentsMargins(20, 20, 20, 20)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(15)
         shadow.setOffset(0, 2)
         shadow.setColor(QColor(0, 0, 0, 30))
-        room_card.setGraphicsEffect(shadow)
+        self.room_card.setGraphicsEffect(shadow)
 
         # Header
         r_header = QHBoxLayout()
@@ -521,14 +560,12 @@ class SocialPage(QWidget):
         chat_v.setContentsMargins(0, 0, 10, 0)
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
-        self.chat_display.setStyleSheet(
-            "background: #fdfdfd; border: 1px solid #eee; border-radius: 8px; padding: 5px;")
+
         self.chat_input = QLineEdit()
         self.chat_input.setPlaceholderText(STRINGS["chat_placeholder"])
         self.chat_input.setFixedHeight(40)
-        self.chat_input.setStyleSheet(
-            "background: #fdfdfd; border: 1px solid #ddd; border-radius: 20px; padding: 0 15px;")
         self.chat_input.returnPressed.connect(self.send_chat_message)
+
         btn_send = QPushButton(STRINGS["btn_send"])
         btn_send.setFixedSize(60, 40)
         btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -547,13 +584,11 @@ class SocialPage(QWidget):
         rank_v.setContentsMargins(10, 0, 0, 0)
 
         self.sprint_ctrl_frame = QFrame()
-        self.sprint_ctrl_frame.setStyleSheet("background: #f9f9f9; border-radius: 10px; padding: 10px;")
         sprint_l = QVBoxLayout(self.sprint_ctrl_frame)
         self.lbl_sprint_status = QLabel(STRINGS["status_sprint_inactive"])
         self.lbl_sprint_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_sprint_status.setStyleSheet("font-weight: bold; color: #555; background: transparent;")
-        ctrl_label = QLabel(STRINGS["lbl_owner_ctrl"])
-        ctrl_label.setStyleSheet("color: #888; font-size: 12px; font-weight: bold; background: transparent;")
+        self.lbl_owner_ctrl = QLabel(STRINGS["lbl_owner_ctrl"])
         self.btn_start_sprint = QPushButton(STRINGS["btn_start_sprint"])
         self.btn_start_sprint.clicked.connect(self.start_sprint_dialog)
         self.btn_start_sprint.setStyleSheet(
@@ -562,22 +597,20 @@ class SocialPage(QWidget):
         self.btn_stop_sprint.clicked.connect(self.stop_sprint)
         self.btn_stop_sprint.setStyleSheet(
             "background: #e74c3c; color: white; border-radius: 5px; padding: 5px; font-weight: bold; border: none;")
-        sprint_l.addWidget(ctrl_label)
+        sprint_l.addWidget(self.lbl_owner_ctrl)
         sprint_l.addWidget(self.lbl_sprint_status)
         sprint_l.addWidget(self.btn_start_sprint)
         sprint_l.addWidget(self.btn_stop_sprint)
         self.sprint_ctrl_frame.hide()
 
         self.rank_list = QListWidget()
-        self.rank_list.setStyleSheet(
-            "QListWidget { background: transparent; border: none; } QListWidget::item { padding: 5px; }")
         self.rank_list.setIconSize(QSize(32, 32))
-        # Context Menu for Add Friend
         self.rank_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.rank_list.customContextMenuRequested.connect(self.show_member_context_menu)
 
         rank_v.addWidget(self.sprint_ctrl_frame)
-        rank_v.addWidget(QLabel(STRINGS["lbl_leaderboard"]))
+        self.lbl_leaderboard = QLabel(STRINGS["lbl_leaderboard"])
+        rank_v.addWidget(self.lbl_leaderboard)
         rank_v.addWidget(self.rank_list)
         rank_v.addStretch()
 
@@ -587,7 +620,7 @@ class SocialPage(QWidget):
         splitter.setStretchFactor(1, 1)
 
         room_card_layout.addWidget(splitter)
-        room_layout.addWidget(room_card)
+        room_layout.addWidget(self.room_card)
         return widget
 
     def show_member_context_menu(self, pos):
@@ -658,7 +691,6 @@ class SocialPage(QWidget):
         dlg.exec()
 
     def show_create_group_dialog(self):
-        # 自定义创建房间对话框，支持密码
         dialog = QDialog(self)
         dialog.setWindowTitle(STRINGS["dialog_create_group_title"])
         layout = QFormLayout(dialog)
@@ -685,7 +717,6 @@ class SocialPage(QWidget):
             name = edit_name.text().strip()
             if not name: return
 
-            # 保存创建请求数据
             payload = {
                 "type": "create_group",
                 "name": name,
@@ -797,7 +828,7 @@ class SocialPage(QWidget):
                 if item.widget(): item.widget().deleteLater()
 
             for f in data.get("data", []):
-                card = FriendCard(f)
+                card = FriendCard(f, self.current_theme)  # Pass theme
                 card.delete_clicked.connect(self.on_delete_friend_clicked)
                 self.friend_layout.addWidget(card)
 
@@ -823,37 +854,28 @@ class SocialPage(QWidget):
             groups = data.get("data", [])
             cols = 2  # 2 columns grid
             for i, g in enumerate(groups):
-                card = RoomCard(g)
+                card = RoomCard(g, self.current_theme)  # Pass theme
                 card.join_clicked.connect(self.on_join_room_clicked)
                 self.lobby_layout.addWidget(card, i // cols, i % cols)
 
         elif dtype in ["create_group_response", "join_group_response"]:
             if data['status'] == 'success':
-                # Create: We are owner. Join: We assume not owner until detailed info.
                 owner_id = self.my_user_id if dtype == "create_group_response" else 0
                 self.enter_room_view(data['group_id'], data.get('group_name', STRINGS["lbl_loading"]), owner_id)
                 self.refresh_current_group_data()
-                # 成功加入或创建后，清除 pending payload
                 self.pending_create_payload = None
             else:
                 msg = data.get('msg', STRINGS["msg_unknown_err"])
-
-                # 【重要修复】自动处理 "You are already in a group" 错误
                 if "already in a group" in msg or "already in another group" in msg:
-                    # 如果有 pending_create_payload，说明是用户尝试创建新房间时失败
-                    # 询问是否退出旧房间并继续创建
                     if self.pending_create_payload and dtype == "create_group_response":
                         gid = data.get('current_group_id', 'Unknown')
                         reply = QMessageBox.question(self, STRINGS["warn_title"],
                                                      f"你当前已在房间 (ID: {gid}) 中。\n是否退出该房间并创建新房间？",
                                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                         if reply == QMessageBox.StandardButton.Yes:
-                            # 发送离开请求，注意：我们不清除 pending_create_payload，
-                            # 这样在 leave_group_response 中可以检测到并触发创建
                             self.network.send_request({"type": "leave_group", "group_id": gid})
-                            return  # 等待 leave_group_response
+                            return
 
-                    # 如果是加入房间失败（没有 payload），则只是提示切回旧房间
                     if 'current_group_id' in data:
                         gid = data['current_group_id']
                         reply = QMessageBox.question(self, STRINGS["warn_title"],
@@ -863,7 +885,6 @@ class SocialPage(QWidget):
                             self.enter_room_view(gid, STRINGS["lbl_loading"], 0)
                             self.refresh_current_group_data()
                         else:
-                            # 用户选择不切回，那也没办法，只能留在 lobby
                             pass
                     else:
                         QMessageBox.warning(self, STRINGS["msg_failed"], msg)
@@ -888,17 +909,14 @@ class SocialPage(QWidget):
             if data.get("msg") == "Group disbanded":
                 QMessageBox.information(self, STRINGS["success_title"], "房间已解散。")
             else:
-                # 只有在不是自动重试的情况下才弹窗
                 if not self.pending_create_payload:
                     QMessageBox.information(self, STRINGS["success_title"], STRINGS["msg_leave_success"])
 
             self.leave_room()
 
-            # 【重要修复】如果是因为要创建新房间而强制退出的，现在重新发送创建请求
             if self.pending_create_payload:
                 print("[Social] Auto-retrying create group after leave...")
                 self.network.send_request(self.pending_create_payload)
-                # 注意：不要在这里清空 payload，要等到 create_group_response 成功后再清空
 
         elif dtype == "group_detail_response":
             if self.current_group_id != data['group_id']: return
@@ -927,7 +945,8 @@ class SocialPage(QWidget):
                     "color: #e67e22; font-weight: bold; font-size: 14px; background: transparent;")
             else:
                 self.lbl_sprint_status.setText(STRINGS["status_sprint_inactive"])
-                self.lbl_sprint_status.setStyleSheet("color: #7f8c8d; font-size: 14px; background: transparent;")
+                self.lbl_sprint_status.setStyleSheet(
+                    f"color: {self.current_theme['text_sub']}; font-size: 14px; background: transparent;")
 
             html = ""
             for msg in data['chat_history']:
@@ -951,7 +970,7 @@ class SocialPage(QWidget):
             rank_data_for_float = []
             for idx, r in enumerate(data['leaderboard']):
                 prefix = f"#{idx + 1}"
-                color = "black"
+                color = self.current_theme['text_main']
                 if r['reached_target']:
                     color = "#27ae60"
                 elif idx == 0 and r['word_count'] > 0:

@@ -1,6 +1,7 @@
 # client/ui/localization.py
 
-STRINGS = {
+# 中文包
+CN = {
     # --- 全局/通用 ---
     "app_name": "InkSprint",
     "warn_title": "提示",
@@ -9,14 +10,14 @@ STRINGS = {
     "confirm_title": "确认",
     "lbl_loading": "加载中...",
 
-    # --- 托盘菜单 (System Tray) ---
+    # --- 托盘菜单 ---
     "tray_show": "显示主面板",
     "tray_float": "悬浮模式",
     "tray_quit": "退出",
     "msg_conn_fail_title": "连接失败",
     "msg_conn_fail_text": "无法连接到服务器 \n请先运行 server/main.py",
 
-    # --- 登录窗口 (Auth) ---
+    # --- 登录窗口 ---
     "window_title_auth": "InkSprint 认证",
     "login_btn": "登录",
     "create_account_link": "创建账号",
@@ -35,7 +36,6 @@ STRINGS = {
     "placeholder_email": "邮箱 (用于找回密码)",
     "placeholder_code": "验证码",
     "placeholder_new_pwd": "新密码",
-
     "warn_enter_all": "请输入用户名和密码",
     "warn_user_pwd_req": "用户名和密码不能为空",
     "warn_enter_user_first": "请先输入用户名",
@@ -46,8 +46,8 @@ STRINGS = {
     "title_sent": "已发送",
     "title_reset_fail": "重置失败",
 
-    # --- 主界面 (Dashboard) ---
-    "window_title_dash": "InkSprint 面板",
+    # --- 主界面 ---
+    "window_title_dash": "InkSprint",  # 【修改】原为 "InkSprint 面板"
     "nav_dashboard": "主页",
     "nav_analytics": "统计",
     "nav_social": "社交",
@@ -63,7 +63,7 @@ STRINGS = {
     "sources_title": "监控源 ({}/10)",
     "btn_local": "➕ 本地",
     "btn_online": "🌐 在线",
-    "timer_title": "专注番茄钟",
+    "timer_title": "番茄钟",
     "check_float": "悬浮",
 
     # 设置页
@@ -78,8 +78,14 @@ STRINGS = {
     "placeholder_bind_email": "绑定邮箱",
     "placeholder_signature": "写一句个性签名...",
     "btn_change_avatar": "更换头像",
-    "appearance_header": "外观",
+
+    "appearance_header": "外观 & 语言",
     "lbl_accent": "主题色:",
+    "lbl_history_colors": "历史颜色:",
+    "lbl_default_color": "默认:",
+    "lbl_language": "语言 / Language:",
+    "lbl_font": "全局字体:",
+
     "btn_save": "保存修改",
 
     "msg_nick_empty": "昵称不能为空！",
@@ -92,22 +98,21 @@ STRINGS = {
     "dialog_add_web_label": "链接:",
     "menu_remove": "移除",
 
-    # --- 统计页 (Analytics) ---
-    "analytics_title_header": "活动统计",
+    # --- 统计页 ---
+    "analytics_title_header": "习惯",
     "btn_week": "周",
     "btn_month": "月",
     "btn_year": "年",
-    "graph_title": "贡献热力图 (近一年)",
+    "graph_title": "历程",
     "btn_view_details": "查看近期明细 (3天)",
     "dialog_details_title": "近期活动明细",
     "col_time": "时间",
     "col_added": "新增字数",
     "col_duration": "时长 (秒)",
 
-    # --- 社交页 (Social) ---
+    # --- 社交页 ---
     "tab_groups": "房间",
     "tab_friends": "好友",
-
     "search_placeholder": "搜索用户ID或昵称",
     "btn_search_user": "搜索用户",
     "btn_add_friend": "添加好友",
@@ -127,7 +132,6 @@ STRINGS = {
     "menu_delete_friend": "删除好友",
     "msg_delete_friend_confirm": "确定要删除好友 {} 吗？",
     "msg_friend_deleted": "好友已删除",
-
     "btn_create_group": "➕ 创建房间",
     "btn_refresh_lobby": "🔄 刷新大厅",
     "lbl_room_name_fmt": "房间: {}",
@@ -142,7 +146,6 @@ STRINGS = {
     "status_sprint_active_fmt": "拼字: {} 字",
     "btn_start_sprint": "开始拼字",
     "btn_stop_sprint": "停止拼字",
-
     "dialog_create_group_title": "创建房间",
     "dialog_group_name_label": "房间名称:",
     "dialog_group_pwd_label": "密码 (可选):",
@@ -160,9 +163,185 @@ STRINGS = {
     "dialog_password_label": "密码:",
     "msg_room_sprinting": "该房间正在拼字中，暂时无法加入！",
     "menu_add_friend": "加为好友",
-
     "float_wph": "速度",
     "float_words": "字",
     "float_group_chat": "群聊",
-    "float_leaderboard": "成员",
+    "float_leaderboard": "排行榜",
 }
+
+# 英文包
+EN = {
+    "app_name": "InkSprint",
+    "warn_title": "Warning",
+    "error_title": "Error",
+    "success_title": "Success",
+    "confirm_title": "Confirm",
+    "lbl_loading": "Loading...",
+
+    "tray_show": "Show Dashboard",
+    "tray_float": "Float Mode",
+    "tray_quit": "Quit",
+    "msg_conn_fail_title": "Connection Failed",
+    "msg_conn_fail_text": "Cannot connect to server. \nPlease run server/main.py",
+
+    "window_title_auth": "InkSprint Auth",
+    "login_btn": "Login",
+    "create_account_link": "Create Account",
+    "forgot_password_link": "Forgot Password?",
+    "register_header": "Register",
+    "register_btn": "Sign Up",
+    "back_login_link": "← Back to Login",
+    "reset_header": "Reset Password",
+    "send_code_btn": "Send Code",
+    "send_code_btn_sent": "Sent...",
+    "reset_btn": "Reset",
+    "placeholder_user": "Username",
+    "placeholder_user_req": "Username *",
+    "placeholder_pwd": "Password",
+    "placeholder_pwd_req": "Password *",
+    "placeholder_email": "Email (For recovery)",
+    "placeholder_code": "Code",
+    "placeholder_new_pwd": "New Password",
+    "warn_enter_all": "Please enter username and password",
+    "warn_user_pwd_req": "Username and password are required",
+    "warn_enter_user_first": "Please enter username first",
+    "warn_fields_req": "All fields are required",
+    "title_login_fail": "Login Failed",
+    "title_reg_success": "Registration Successful",
+    "title_reg_fail": "Registration Failed",
+    "title_sent": "Sent",
+    "title_reset_fail": "Reset Failed",
+
+    "window_title_dash": "InkSprint",  # 【修改】原为 "InkSprint Dashboard"
+    "nav_dashboard": "Home",
+    "nav_analytics": "Stats",
+    "nav_social": "Social",
+    "nav_settings": "Settings",
+    "theme_dark": "🌙 Dark",
+    "theme_light": "☀ Light",
+
+    "stat_today": "Today",
+    "stat_session": "Session: +{}",
+    "stat_speed": "Speed",
+    "unit_wph": "WPH",
+
+    "sources_title": "Sources ({}/10)",
+    "btn_local": "➕ Local",
+    "btn_online": "🌐 Online",
+    "timer_title": "Pomodoro",
+    "check_float": "Float",
+
+    "settings_title": "Settings",
+    "profile_header": "Profile",
+    "lbl_uid": "User ID:",
+    "lbl_nick": "Nickname:",
+    "lbl_email": "Email:",
+    "lbl_avatar": "Avatar:",
+    "lbl_signature": "Bio:",
+    "placeholder_nick": "Display Name",
+    "placeholder_bind_email": "Bind Email",
+    "placeholder_signature": "Your signature...",
+    "btn_change_avatar": "Change Avatar",
+
+    "appearance_header": "Appearance & Language",
+    "lbl_accent": "Accent:",
+    "lbl_history_colors": "History:",
+    "lbl_default_color": "Default:",
+    "lbl_language": "Language:",
+    "lbl_font": "Global Font:",
+
+    "btn_save": "Save Changes",
+
+    "msg_nick_empty": "Nickname cannot be empty!",
+    "msg_profile_sent": "Update request sent.",
+    "dialog_select_avatar": "Select Avatar",
+    "dialog_img_files": "Images (*.png *.jpg *.jpeg)",
+    "dialog_select_doc": "Select Document",
+    "dialog_doc_files": "Documents (*.docx *.txt)",
+    "dialog_add_web_title": "Add Web Source",
+    "dialog_add_web_label": "Link:",
+    "menu_remove": "Remove",
+
+    "analytics_title_header": "Habits",
+    "btn_week": "Week",
+    "btn_month": "Month",
+    "btn_year": "Year",
+    "graph_title": "Contributions",
+    "btn_view_details": "View Details (3 Days)",
+    "dialog_details_title": "Recent Activity",
+    "col_time": "Time",
+    "col_added": "Added",
+    "col_duration": "Duration (s)",
+
+    "tab_groups": "Rooms",
+    "tab_friends": "Friends",
+    "search_placeholder": "Search ID/Name",
+    "btn_search_user": "Search",
+    "btn_add_friend": "Add Friend",
+    "btn_friend_reqs": "Requests",
+    "btn_refresh_list": "Refresh",
+    "dialog_friend_req_title": "Friend Requests",
+    "item_no_reqs": "No pending requests.",
+    "lbl_dbl_click": "Double click to handle:",
+    "msg_new_req": "You have a new friend request!",
+    "msg_req_confirm_title": "Respond",
+    "msg_req_confirm_fmt": "Accept request from {}?",
+    "msg_found_user_title": "User Found",
+    "msg_add_confirm_fmt": "Add {} ({}) as friend?",
+    "msg_not_found_title": "Not Found",
+    "msg_user_not_found": "User not found.",
+    "msg_friend_list_updated": "Friend list updated!",
+    "menu_delete_friend": "Delete Friend",
+    "msg_delete_friend_confirm": "Delete friend {}?",
+    "msg_friend_deleted": "Friend deleted.",
+    "btn_create_group": "➕ New Room",
+    "btn_refresh_lobby": "🔄 Refresh",
+    "lbl_room_name_fmt": "Room: {}",
+    "btn_leave_room": "Leave",
+    "btn_float_chat": "Float Chat",
+    "btn_float_rank": "Float Rank",
+    "chat_placeholder": "Type message...",
+    "btn_send": "Send",
+    "lbl_leaderboard": "Members",
+    "lbl_owner_ctrl": "Owner Control",
+    "status_sprint_inactive": "Sprint: Idle",
+    "status_sprint_active_fmt": "Sprint: {} words",
+    "btn_start_sprint": "Start",
+    "btn_stop_sprint": "Stop",
+    "dialog_create_group_title": "Create Room",
+    "dialog_group_name_label": "Name:",
+    "dialog_group_pwd_label": "Password (Optional):",
+    "dialog_private_title": "Private Room?",
+    "dialog_private_msg": "Set as Private Room?\n(Visible to friends only)",
+    "dialog_sprint_title": "Start Sprint",
+    "dialog_sprint_target": "Target Words:",
+    "msg_leave_confirm": "Leave room [{}]?",
+    "msg_leave_success": "Left room successfully.",
+    "msg_in_other_room": "You are in room (ID: {}). Leave first?",
+    "msg_failed": "Failed",
+    "msg_unknown_err": "Unknown Error",
+    "msg_room_locked": "Room locked. Enter password.",
+    "dialog_password_title": "Password",
+    "dialog_password_label": "Password:",
+    "msg_room_sprinting": "Room is sprinting. Cannot join now!",
+    "menu_add_friend": "Add Friend",
+    "float_wph": "WPH",
+    "float_words": "Words",
+    "float_group_chat": "Chat",
+    "float_leaderboard": "Leaderboard",
+}
+
+# 默认初始化为中文，内容会被动态替换
+STRINGS = CN.copy()
+
+
+def update_language(lang_code):
+    """
+    动态更新全局 STRINGS 字典的内容
+    :param lang_code: 'CN' or 'EN'
+    """
+    STRINGS.clear()
+    if lang_code == "EN":
+        STRINGS.update(EN)
+    else:
+        STRINGS.update(CN)
